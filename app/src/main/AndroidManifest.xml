@@ -20,7 +20,7 @@
         android:allowBackup="false"
         android:label="Clash Companion"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar"
+        android:theme="@style/Theme.Material3.DayNight.NoActionBar"
         tools:targetApi="36">
 
         <activity

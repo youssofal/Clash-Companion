@@ -8,8 +8,8 @@ Full plan: `docs/clash-companion-final-plan-v2.md`
 ```
 app/src/main/
 ├── java/com/yoyostudios/clashcompanion/
-│   ├── ClashCompanionApp.kt              # Application class
-│   ├── MainActivity.kt                    # Setup UI, permissions, deck loading
+│   ├── ClashCompanionApp.kt              # Application class + Compose theme
+│   ├── MainActivity.kt                    # Compose setup UI, permissions, deck loading
 │   ├── accessibility/
 │   │   └── ClashCompanionAccessibilityService.kt  # Tap injection (safeTap)
 │   ├── capture/
@@ -29,17 +29,22 @@ app/src/main/
 │   ├── deck/
 │   │   └── DeckManager.kt               # Share link parse + cr-api-data
 │   ├── overlay/
-│   │   └── OverlayManager.kt            # WindowManager overlay UI
+│   │   └── OverlayManager.kt            # WindowManager + ComposeView overlay HUD
 │   ├── api/
 │   │   ├── AnthropicClient.kt           # Claude API wrapper
-│   │   └── RoboflowClient.kt            # Roboflow API wrapper
+│   │   └── RoboflowClient.kt           # Roboflow API wrapper
+│   ├── ui/
+│   │   └── theme/
+│   │       ├── Theme.kt                  # ClashCompanionTheme (Material 3)
+│   │       ├── Color.kt                  # Design system color palette
+│   │       ├── Type.kt                   # Typography scale
+│   │       └── Spacing.kt               # Spacing & dimension tokens
 │   └── util/
 │       ├── Coordinates.kt               # Hardcoded 1080x2340 positions
 │       └── CardAliases.kt               # Alias dictionary
 ├── res/
-│   ├── layout/
-│   │   ├── activity_main.xml
-│   │   └── overlay_hud.xml
+│   ├── font/                             # Custom typefaces
+│   ├── drawable/                          # Vector drawables, app icon layers
 │   └── xml/
 │       └── accessibility_service_config.xml
 └── assets/
@@ -58,6 +63,8 @@ app/src/main/
 - ALL coordinates are 1080x2340 hardcoded
 - ALL HTTP calls use OkHttp with coroutines on Dispatchers.IO
 - ALL JSON parsing uses Gson
+- ALL UI is Jetpack Compose with Material 3 — no new XML layouts
+- ALL visible elements must be polished, branded, and animated — design is a first-class deliverable
 
 ## Git Commit Standards
 

@@ -131,17 +131,53 @@ object DeckManager {
      * "Check out my deck! https://link.clashroyale.com/deck/en?deck=..."
      */
     fun parseDeckFromText(text: String): List<CardInfo>? {
-        // Extract URL from text using regex
-        val urlPattern = Regex("""https?://link\.clashroyale\.com/deck/[^\s]+""")
-        val match = urlPattern.find(text)
-        if (match == null) {
-            Log.w(TAG, "DECK: No deck URL found in text: $text")
+        // CR sends URLs in two formats:
+        // 1. https://link.clashroyale.com/deck/en?deck=26000000;26000001;...
+        // 2. https://link.clashroyale.com/en?clashroyale://copyDeck?deck=26000000;...
+        // Extract deck param from either format using regex on the raw text
+
+        // Try to find deck= parameter directly in the text
+        val deckPattern = Regex("""deck=([0-9;]+)""")
+        val deckMatch = deckPattern.find(text)
+        if (deckMatch != null) {
+            val deckParam = deckMatch.groupValues[1]
+            Log.i(TAG, "DECK: Extracted deck param: $deckParam")
+            return parseDeckParam(deckParam)
+        }
+
+        Log.w(TAG, "DECK: No deck param found in text: $text")
+        return null
+    }
+
+    /**
+     * Parse a semicolon-separated deck parameter string into CardInfo list.
+     */
+    fun parseDeckParam(deckParam: String): List<CardInfo>? {
+        val db = cardDatabase
+        if (db == null || db.isEmpty()) {
+            Log.e(TAG, "DECK: Card database not loaded")
             return null
         }
 
-        val url = match.value
-        Log.i(TAG, "DECK: Extracted URL: $url")
-        return parseDeckUrl(url)
+        val ids = deckParam.split(";").mapNotNull { it.trim().toLongOrNull() }
+        if (ids.isEmpty()) {
+            Log.w(TAG, "DECK: No valid card IDs in: $deckParam")
+            return null
+        }
+
+        val cards = ids.mapNotNull { id ->
+            val card = db[id]
+            if (card == null) Log.w(TAG, "DECK: Unknown card ID: $id")
+            card
+        }
+
+        if (cards.isEmpty()) {
+            Log.e(TAG, "DECK: No valid cards found")
+            return null
+        }
+
+        Log.i(TAG, "DECK: Parsed ${cards.size} cards")
+        return cards
     }
 
     /**
@@ -210,6 +246,12 @@ object DeckManager {
         sb.append("Avg elixir: %.1f".format(avg))
         return sb.toString()
     }
+
+    /**
+     * Get the card art image URL from RoyaleAPI CDN.
+     */
+    fun getCardImageUrl(card: CardInfo): String =
+        "https://raw.githubusercontent.com/RoyaleAPI/cr-api-assets/master/cards-150/${card.key}.png"
 
     /**
      * Build a JSON representation of the deck for sending to Claude.
