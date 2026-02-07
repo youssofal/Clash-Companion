@@ -30,6 +30,12 @@
             </intent-filter>
         </activity>
 
+        <!-- Speech Service for microphone + STT -->
+        <service
+            android:name=".speech.SpeechService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
+
         <!-- Screen Capture Service for MediaProjection -->
         <service
             android:name=".capture.ScreenCaptureService"

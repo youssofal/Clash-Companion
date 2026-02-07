@@ -4,9 +4,12 @@ app/build/
 .gradle/
 *.apk
 
-# Large model files
-app/src/main/assets/moonshine-base/
-app/src/main/assets/silero-vad/
+# Large model files (download separately, ~280MB total)
+app/src/main/assets/sherpa-onnx-moonshine-base-en-int8/
+app/src/main/assets/silero_vad.onnx
+
+# Native shared libraries (~24MB)
+app/src/main/jniLibs/
 
 # IDE
 .idea/

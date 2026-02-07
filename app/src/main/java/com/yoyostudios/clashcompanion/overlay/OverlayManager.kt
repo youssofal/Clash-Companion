@@ -17,6 +17,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import com.yoyostudios.clashcompanion.accessibility.ClashCompanionAccessibilityService
 import com.yoyostudios.clashcompanion.capture.ScreenCaptureService
+import com.yoyostudios.clashcompanion.speech.SpeechService
 import com.yoyostudios.clashcompanion.util.Coordinates
 
 class OverlayManager(private val context: Context) {
@@ -100,6 +101,35 @@ class OverlayManager(private val context: Context) {
             }
         }
         layout.addView(btnPlayCard2)
+
+        // Start/Stop Listening toggle
+        var isListening = false
+        val btnListen = Button(context).apply {
+            text = "Start Listening"
+            textSize = 12f
+            setOnClickListener {
+                val svc = SpeechService.instance
+                if (svc == null) {
+                    updateStatus("ERROR: Start Speech Service first")
+                    return@setOnClickListener
+                }
+                if (!isListening) {
+                    svc.onTranscript = { text, latencyMs ->
+                        updateStatus("STT: '$text' (${latencyMs}ms)")
+                    }
+                    svc.startListening()
+                    text = "Stop Listening"
+                    isListening = true
+                    updateStatus("Listening...")
+                } else {
+                    svc.stopListening()
+                    text = "Start Listening"
+                    isListening = false
+                    updateStatus("Stopped listening")
+                }
+            }
+        }
+        layout.addView(btnListen)
 
         // Save screenshot test button
         val btnScreenshot = Button(context).apply {
