@@ -199,11 +199,15 @@ object CommandParser {
     // ── Card matching (FIX-6: multi-level) ──────────────────────────────
 
     /**
-     * Multi-level card matching strategy:
-     *  1. Full-text alias lookup (handles "hog rider", "skeleton army")
-     *  2. Word + bigram alias lookup (handles "play giant" -> "giant")
+     * Multi-level card matching strategy (deck-aware):
+     *  1. Full-text alias lookup — prefer deck cards, save non-deck as fallback
+     *  2. Word + bigram alias lookup — prefer deck cards, save non-deck as fallback
      *  3. Fuzzy match vs deck card names
      *  4. Fuzzy match vs all alias keys
+     *
+     * Deck-aware: if an alias maps to a card NOT in the deck, checks whether
+     * a related deck card exists (e.g. "pekka" -> P.E.K.K.A not in deck,
+     * but Mini P.E.K.K.A is -> returns Mini P.E.K.K.A).
      *
      * FIX-7: Short card names (<=3 chars) require similarity >= 0.75
      * to prevent "tap" matching "Zap".
@@ -211,9 +215,27 @@ object CommandParser {
     fun matchCard(text: String, deckCards: List<String>): Pair<String, Float>? {
         if (text.isBlank()) return null
 
+        val deckSet = deckCards.toSet()
+        var nonDeckFallback: Pair<String, Float>? = null
+
+        // Helper: strip dots, hyphens, and other punctuation for substring matching
+        fun normalize(s: String): String = s.lowercase().replace(Regex("[^a-z ]"), "").trim()
+
+        // Helper: if aliasCard is in deck, return it directly.
+        // If not, check if any deck card's normalized name contains the
+        // normalized alias result (handles Mini P.E.K.K.A containing P.E.K.K.A).
+        fun findDeckVariant(aliasCard: String): String? {
+            if (aliasCard in deckSet) return aliasCard
+            val norm = normalize(aliasCard)
+            if (norm.isBlank()) return null
+            return deckCards.firstOrNull { normalize(it).contains(norm) }
+        }
+
         // Level 1: Full-text direct alias lookup
         CardAliases.CARD_ALIASES[text]?.let { card ->
-            return card to 1.0f
+            val resolved = findDeckVariant(card)
+            if (resolved != null) return resolved to 1.0f
+            if (nonDeckFallback == null) nonDeckFallback = card to 0.9f
         }
 
         // Level 2: Word + bigram alias lookup
@@ -224,7 +246,9 @@ object CommandParser {
             for (i in 0 until words.size - 1) {
                 val bigram = "${words[i]} ${words[i + 1]}"
                 CardAliases.CARD_ALIASES[bigram]?.let { card ->
-                    return card to 1.0f
+                    val resolved = findDeckVariant(card)
+                    if (resolved != null) return resolved to 1.0f
+                    if (nonDeckFallback == null) nonDeckFallback = card to 0.9f
                 }
             }
         }
@@ -233,7 +257,9 @@ object CommandParser {
         for (word in words) {
             if (word.length < 2) continue // skip single-char noise
             CardAliases.CARD_ALIASES[word]?.let { card ->
-                return card to 1.0f
+                val resolved = findDeckVariant(card)
+                if (resolved != null) return resolved to 1.0f
+                if (nonDeckFallback == null) nonDeckFallback = card to 0.9f
             }
         }
 
@@ -282,11 +308,12 @@ object CommandParser {
         // FIX-7: Short card names need higher threshold
         val minThreshold = if (bestCard != null && bestCard.length <= 3) 0.75f else 0.5f
 
-        return if (bestCard != null && bestSimilarity >= minThreshold) {
-            bestCard to bestSimilarity
-        } else {
-            null
+        if (bestCard != null && bestSimilarity >= minThreshold) {
+            return bestCard to bestSimilarity
         }
+
+        // Last resort: return non-deck alias fallback (card exists but not in this deck)
+        return nonDeckFallback
     }
 
     // ── Default zone logic (FIX-2) ──────────────────────────────────────

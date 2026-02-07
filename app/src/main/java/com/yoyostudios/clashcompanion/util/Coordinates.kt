@@ -57,6 +57,8 @@ object Coordinates {
         "bridge right" to RIGHT_BRIDGE,
         "wright" to RIGHT_BRIDGE,
         "wright bridge" to RIGHT_BRIDGE,
+        "write" to RIGHT_BRIDGE,
+        "write bridge" to RIGHT_BRIDGE,
         "right tower" to RIGHT_BRIDGE,
         "left tower" to LEFT_BRIDGE,
         "center" to CENTER,
