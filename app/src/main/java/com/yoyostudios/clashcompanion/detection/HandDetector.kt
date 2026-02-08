@@ -149,6 +149,44 @@ object HandDetector {
         maskElixir = false
     )
 
+    private data class PrecomputedWeights(
+        val weights: FloatArray, // 256
+        val elixirMasked: BooleanArray // 256
+    )
+
+    private fun precomputeWeights(cfg: WeightedSampleConfig): PrecomputedWeights {
+        val weights = FloatArray(HASH_SIZE * HASH_SIZE)
+        val masked = BooleanArray(HASH_SIZE * HASH_SIZE)
+        var k = 0
+        for (gy in 0 until HASH_SIZE) {
+            for (gx in 0 until HASH_SIZE) {
+                val u = (gx + 0.5f) / HASH_SIZE
+                val v = (gy + 0.5f) / HASH_SIZE
+
+                val du = u - cfg.centerX
+                val dv = v - cfg.centerY
+                val wt = kotlin.math.exp(
+                    -((du * du) / (cfg.sigmaX * cfg.sigmaX) + (dv * dv) / (cfg.sigmaY * cfg.sigmaY))
+                ).toFloat()
+
+                val border = minOf(u, 1f - u, v, 1f - v)
+                val borderWt = if (border < cfg.borderCutoff) cfg.borderScale else 1f
+
+                val isElixir = cfg.maskElixir && u < 0.35f && v > 0.72f
+                val elixirWt = if (isElixir) 0.05f else 1f
+
+                weights[k] = wt * borderWt * elixirWt
+                masked[k] = isElixir
+                k++
+            }
+        }
+        return PrecomputedWeights(weights = weights, elixirMasked = masked)
+    }
+
+    private val HAND_WEIGHTS = precomputeWeights(HAND_SAMPLE)
+    private val NEXT_WEIGHTS = precomputeWeights(NEXT_SAMPLE)
+    private val CDN_WEIGHTS = precomputeWeights(CDN_SAMPLE)
+
     /**
      * Weighted sampling hash for a bitmap:
      * - Sample a 16x16 grid of pixels (no resize)
@@ -157,7 +195,10 @@ object HandDetector {
      *
      * Output is normalized (per-channel mean + L2) so cosineSimilarity is stable across brightness.
      */
-    private fun weightedHash16x16(bitmap: Bitmap, config: WeightedSampleConfig): FloatArray {
+    private fun weightedHash16x16(
+        bitmap: Bitmap,
+        weights: PrecomputedWeights
+    ): FloatArray {
         val result = FloatArray(HASH_LEN)
         val w = bitmap.width
         val h = bitmap.height
@@ -165,6 +206,7 @@ object HandDetector {
 
         val fallbackPixel = bitmap.getPixel(w / 2, h / 2)
 
+        var k = 0
         for (gy in 0 until HASH_SIZE) {
             for (gx in 0 until HASH_SIZE) {
                 val u = (gx + 0.5f) / HASH_SIZE
@@ -173,24 +215,14 @@ object HandDetector {
                 val sx = (u * w).toInt().coerceIn(0, w - 1)
                 val sy = (v * h).toInt().coerceIn(0, h - 1)
 
-                val du = u - config.centerX
-                val dv = v - config.centerY
-                val wt = kotlin.math.exp(
-                    -((du * du) / (config.sigmaX * config.sigmaX) + (dv * dv) / (config.sigmaY * config.sigmaY))
-                ).toFloat()
-
-                val border = minOf(u, 1f - u, v, 1f - v)
-                val borderWt = if (border < config.borderCutoff) config.borderScale else 1f
-
-                val elixirWt = if (config.maskElixir && u < 0.35f && v > 0.72f) 0.05f else 1f
-                val wFinal = wt * borderWt * elixirWt
-
-                val pixel = if (config.maskElixir && elixirWt < 0.5f) fallbackPixel else bitmap.getPixel(sx, sy)
+                val wFinal = weights.weights[k]
+                val pixel = if (weights.elixirMasked[k]) fallbackPixel else bitmap.getPixel(sx, sy)
 
                 val idx = (gy * HASH_SIZE + gx) * HASH_CHANNELS
                 result[idx] = (((pixel shr 16) and 0xFF).toFloat()) * wFinal
                 result[idx + 1] = (((pixel shr 8) and 0xFF).toFloat()) * wFinal
                 result[idx + 2] = ((pixel and 0xFF).toFloat()) * wFinal
+                k++
             }
         }
 
@@ -329,8 +361,7 @@ object HandDetector {
      */
     fun hashSlot(frame: Bitmap, slotIndex: Int): FloatArray? {
         val crop = cropCardSlot(frame, slotIndex) ?: return null
-        val cfg = if (slotIndex == 4) NEXT_SAMPLE else HAND_SAMPLE
-        val hash = weightedHash16x16(crop, cfg)
+        val hash = weightedHash16x16(crop, if (slotIndex == 4) NEXT_WEIGHTS else HAND_WEIGHTS)
         crop.recycle()
         return hash
     }
@@ -397,12 +428,12 @@ object HandDetector {
                     }
 
                     // Compute weighted hash (normal) — normalized for stable cosine
-                    val normalHash = weightedHash16x16(bitmap, CDN_SAMPLE)
+                    val normalHash = weightedHash16x16(bitmap, CDN_WEIGHTS)
 
                     // Compute color hash (desaturated — for dimmed/low-elixir cards)
                     val dimBitmap = desaturate(bitmap)
                     bitmap.recycle()
-                    val dimHash = weightedHash16x16(dimBitmap, CDN_SAMPLE)
+                    val dimHash = weightedHash16x16(dimBitmap, CDN_WEIGHTS)
                     dimBitmap.recycle()
 
                     Triple(card.name, normalHash, dimHash)
