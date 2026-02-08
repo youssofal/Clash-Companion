@@ -135,8 +135,9 @@ object CommandRouter {
         val cleaned = CommandParser.cleanTranscript(transcript)
 
         // ── Autopilot toggle (check before parsing & before isBusy gate) ──
+        // ON commands toggle: if already active, turn OFF (so "autopilot" works as on/off)
         if (cleaned in AUTOPILOT_ON_COMMANDS) {
-            startAutopilot()
+            if (isAutopilot) stopAutopilot() else startAutopilot()
             return
         }
         if (cleaned in AUTOPILOT_OFF_COMMANDS) {
@@ -415,7 +416,7 @@ VALID ZONES: left_bridge, right_bridge, center, behind_left, behind_right, back_
 
 Rules:
 - ONLY suggest cards in CURRENT HAND.
-- When user says "defend" or "defense": ALWAYS play a defensive card immediately. Trust the user — they see threats you cannot. Never return "wait". Use playbook defense_table. Place at center or the threatened lane.
+- When user says "defend" or "defense": ALWAYS play a defensive card immediately. Trust the user. Never return "wait". Use playbook defense_table. For TROOPS (Knight, Mini P.E.K.K.A, Musketeer, Archers), place at behind_left or behind_right — NEVER center. Only BUILDINGS (Cannon, Tesla) go at center. If user says "defend left", use behind_left. If "defend right", use behind_right. If just "defend", pick behind_left or behind_right.
 - When user says "push left" or "push right": play an offensive card at that bridge. Prefer win condition (Giant), then support troops (Musketeer, Archers), then cycle cards.
 - When user says "follow up": support LAST PLAYED card in the SAME LANE. Use playbook synergies (e.g. Giant + Musketeer, Giant + Archers). If last played was at left, play support at left. Never cross lanes for follow-up.
 - When user says "suggest" or gives a vague command: pick the best offensive play from current hand.

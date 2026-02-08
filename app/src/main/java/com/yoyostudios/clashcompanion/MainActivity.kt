@@ -287,7 +287,7 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         overlayManager?.hide()
         HandDetector.stopScanning()
-        CardClassifier.destroy()
+        // CardClassifier.destroy() — removed: destroys native mutex while scan may be mid-inference
         scope.cancel()
     }
 }
