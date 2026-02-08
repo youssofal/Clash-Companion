@@ -12,7 +12,7 @@ Built solo in 48 hours for the [Supercell Global AI Game Hack](https://ailab.sup
 
 ## Download (Pre-Built APK)
 
-**[Download Clash Commander v1.0 APK](https://github.com/youssofal/Clash-Commander/releases/tag/v1.0.0)** (~457MB, includes all on-device models)
+**[Download Clash Commander v1.1 APK](https://github.com/youssofal/Clash-Commander/releases/download/v1.0.0/clash-commander-v1.1.apk)** (~456MB, includes all on-device models)
 
 Just install and play — no build required. Voice commands work fully offline. Cloud features (Smart Path, Autopilot) require API keys in `local.properties` if building from source.
 
