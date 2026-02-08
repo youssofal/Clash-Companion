@@ -55,8 +55,19 @@ object HandDetector {
     // Rely on relative ranking (highest wins among 8 candidates)
     private const val MIN_CORRELATION = 0.5f
     private const val MIN_CORRELATION_NEXT = 0.5f
+    private const val MIN_MARGIN = 0.06f
+    private const val MIN_MARGIN_NEXT = 0.04f
     private const val SCAN_INTERVAL_MS = 200L // ~5 FPS
     private const val DESATURATION_AMOUNT = 0.7f // How much to desaturate for dim templates
+
+    // Self-refinement (offline): when we're very confident, update CDN templates toward in-game crops.
+    // This removes the domain gap without network calls.
+    private const val REFINE_MIN_SCORE = 0.88f
+    private const val REFINE_MIN_MARGIN = 0.12f
+    private const val REFINE_MIN_STREAK = 3 // consecutive scans
+    private const val REFINE_ALPHA = 0.20f // EMA blend factor
+    private const val REFINE_MIN_INTERVAL_MS = 1200L
+    private const val REFINE_SAVE_DEBOUNCE_MS = 4000L
 
     // ── State ───────────────────────────────────────────────────────────
 
@@ -100,35 +111,98 @@ object HandDetector {
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var consecutiveNullFrames = 0
 
+    // Per-card streak for template refinement gating.
+    private val refineStreak = mutableMapOf<String, Int>()
+    private val lastRefineAtMs = mutableMapOf<String, Long>()
+    private var lastSaveAtMs: Long = 0L
+
+    // Provided at startScanning() time so we can persist refined templates.
+    @Volatile
+    private var scanningContext: Context? = null
+
     // ── Core Color Hash Functions ─────────────────────────────────────
+
+    private data class SampleConfig(
+        val insetLeft: Float,
+        val insetTop: Float,
+        val insetRight: Float,
+        val insetBottom: Float,
+        val maskElixirBadge: Boolean
+    )
+
+    // In-game crops include border + elixir badge; CDN portraits do not.
+    // Use an inset sample to focus on the portrait region and (optionally) mask the elixir badge.
+    private val HAND_SAMPLE = SampleConfig(
+        insetLeft = 0.12f,
+        insetTop = 0.08f,
+        insetRight = 0.12f,
+        insetBottom = 0.28f,
+        maskElixirBadge = true
+    )
+    private val NEXT_SAMPLE = SampleConfig(
+        insetLeft = 0.10f,
+        insetTop = 0.12f,
+        insetRight = 0.10f,
+        insetBottom = 0.22f,
+        maskElixirBadge = true
+    )
+    private val CDN_SAMPLE = SampleConfig(
+        insetLeft = 0.06f,
+        insetTop = 0.06f,
+        insetRight = 0.06f,
+        insetBottom = 0.06f,
+        maskElixirBadge = false
+    )
 
     /**
      * Downsample a bitmap to 16×16 COLOR (RGB) float array.
      * Returns 768 floats: [R0, G0, B0, R1, G1, B1, ...] for each pixel.
      * Color provides 3x more discriminating features than greyscale.
      */
-    fun toColor16x16(bitmap: Bitmap): FloatArray {
-        val scaled = Bitmap.createScaledBitmap(bitmap, HASH_SIZE, HASH_SIZE, true)
+    private fun toColor16x16(bitmap: Bitmap, config: SampleConfig): FloatArray {
         val result = FloatArray(HASH_LEN)
-        for (y in 0 until HASH_SIZE) {
-            for (x in 0 until HASH_SIZE) {
-                val pixel = scaled.getPixel(x, y)
-                val idx = (y * HASH_SIZE + x) * HASH_CHANNELS
-                result[idx] = ((pixel shr 16) and 0xFF).toFloat()     // R
-                result[idx + 1] = ((pixel shr 8) and 0xFF).toFloat()  // G
-                result[idx + 2] = (pixel and 0xFF).toFloat()           // B
+        val w = bitmap.width
+        val h = bitmap.height
+        if (w <= 1 || h <= 1) return result
+
+        val x0 = (w * config.insetLeft).toInt().coerceIn(0, w - 1)
+        val y0 = (h * config.insetTop).toInt().coerceIn(0, h - 1)
+        val x1 = (w * (1f - config.insetRight)).toInt().coerceIn(x0 + 1, w)
+        val y1 = (h * (1f - config.insetBottom)).toInt().coerceIn(y0 + 1, h)
+        val rw = (x1 - x0).coerceAtLeast(1)
+        val rh = (y1 - y0).coerceAtLeast(1)
+
+        // Fallback pixel used when masking the elixir badge region.
+        val fallbackPixel = bitmap.getPixel(w / 2, h / 2)
+
+        for (gy in 0 until HASH_SIZE) {
+            for (gx in 0 until HASH_SIZE) {
+                val sx = x0 + ((gx + 0.5f) * rw / HASH_SIZE).toInt().coerceIn(0, w - 1)
+                val sy = y0 + ((gy + 0.5f) * rh / HASH_SIZE).toInt().coerceIn(0, h - 1)
+
+                val pixel = if (config.maskElixirBadge) {
+                    // Elixir badge sits bottom-left; avoid sampling it.
+                    val inElixirX = sx < (w * 0.30f)
+                    val inElixirY = sy > (h * 0.70f)
+                    if (inElixirX && inElixirY) fallbackPixel else bitmap.getPixel(sx, sy)
+                } else {
+                    bitmap.getPixel(sx, sy)
+                }
+
+                val idx = (gy * HASH_SIZE + gx) * HASH_CHANNELS
+                result[idx] = ((pixel shr 16) and 0xFF).toFloat()
+                result[idx + 1] = ((pixel shr 8) and 0xFF).toFloat()
+                result[idx + 2] = (pixel and 0xFF).toFloat()
             }
         }
-        if (scaled !== bitmap) scaled.recycle()
         return result
     }
 
     /**
-     * Per-channel normalization: subtract mean and divide by std for each RGB channel independently.
-     * This handles brightness changes (dimmed cards) while preserving color ratios.
-     * A dimmed card and a bright card of the same type produce similar normalized patterns.
+     * Mean normalization (per channel) + L2 normalize:
+     * reduces exposure/brightness differences while keeping values non-negative.
      */
-    fun normalize(data: FloatArray) {
+    private fun normalizeByMean(data: FloatArray) {
         val pixelCount = data.size / HASH_CHANNELS
         for (ch in 0 until HASH_CHANNELS) {
             var sum = 0f
@@ -136,19 +210,29 @@ object HandDetector {
                 sum += data[i * HASH_CHANNELS + ch]
             }
             val mean = sum / pixelCount
-
-            var variance = 0f
-            for (i in 0 until pixelCount) {
-                val diff = data[i * HASH_CHANNELS + ch] - mean
-                variance += diff * diff
-            }
-            val std = kotlin.math.sqrt((variance / pixelCount).toDouble()).toFloat()
-            if (std < 1e-6f) continue // Flat channel — skip
+            if (mean < 1e-6f) continue
 
             for (i in 0 until pixelCount) {
                 val idx = i * HASH_CHANNELS + ch
-                data[idx] = (data[idx] - mean) / std
+                data[idx] = data[idx] / mean
             }
+        }
+    }
+
+    private fun l2Normalize(data: FloatArray) {
+        var mag = 0f
+        for (v in data) mag += v * v
+        val denom = kotlin.math.sqrt(mag.toDouble()).toFloat()
+        if (denom < 1e-10f) return
+        for (i in data.indices) data[i] = data[i] / denom
+    }
+
+    private fun ensureNormalized(data: FloatArray) {
+        // Back-compat: older persisted templates were raw 0..255.
+        val max = data.maxOrNull() ?: 0f
+        if (max > 10f) {
+            normalizeByMean(data)
+            l2Normalize(data)
         }
     }
 
@@ -244,9 +328,11 @@ object HandDetector {
      */
     fun hashSlot(frame: Bitmap, slotIndex: Int): FloatArray? {
         val crop = cropCardSlot(frame, slotIndex) ?: return null
-        val hash = toColor16x16(crop)
+        val cfg = if (slotIndex == 4) NEXT_SAMPLE else HAND_SAMPLE
+        val hash = toColor16x16(crop, cfg)
         crop.recycle()
-        // No normalization — raw RGB values, compared via cosine similarity
+        normalizeByMean(hash)
+        l2Normalize(hash)
         return hash
     }
 
@@ -271,6 +357,7 @@ object HandDetector {
         cards: List<DeckManager.CardInfo>,
         context: Context
     ): Int = coroutineScope {
+        scanningContext = context.applicationContext
         Log.i(TAG, "PHASH: Downloading ${cards.size} card art PNGs from CDN...")
         val startTime = System.currentTimeMillis()
 
@@ -311,13 +398,17 @@ object HandDetector {
                         bitmap = opaque
                     }
 
-                    // Compute color hash (normal) — raw RGB, no normalization
-                    val normalHash = toColor16x16(bitmap)
+                    // Compute color hash (normal) from an inset region to reduce border/context mismatch
+                    val normalHash = toColor16x16(bitmap, CDN_SAMPLE)
+                    normalizeByMean(normalHash)
+                    l2Normalize(normalHash)
 
                     // Compute color hash (desaturated — for dimmed/low-elixir cards)
                     val dimBitmap = desaturate(bitmap)
                     bitmap.recycle()
-                    val dimHash = toColor16x16(dimBitmap)
+                    val dimHash = toColor16x16(dimBitmap, CDN_SAMPLE)
+                    normalizeByMean(dimHash)
+                    l2Normalize(dimHash)
                     dimBitmap.recycle()
 
                     Triple(card.name, normalHash, dimHash)
@@ -367,6 +458,7 @@ object HandDetector {
         context: Context,
         onProgress: (String) -> Unit = {}
     ): Int {
+        scanningContext = context.applicationContext
         onProgress("Cropping card slots...")
 
         // Step 1: Crop and encode all slots
@@ -393,7 +485,7 @@ object HandDetector {
 You identify Clash Royale cards from screenshot crops of a player's hand.
 The player's deck contains EXACTLY these ${deckCards.size} cards: $deckList.
 You see $slotCount images. Images 1-4 are the visible hand cards (left to right).
-Image 5 (if present) is the smaller "next card" preview at the right edge.
+Image 5 (if present) is the smaller "next card" preview near the bottom-left "Next:" label.
 Cards may appear dimmed or greyed out (insufficient elixir) — still identify them.
 Respond ONLY with a JSON array of card names in the EXACT order of the images.
 Use EXACT card names from the deck list above. No other text.
@@ -474,6 +566,7 @@ Use EXACT card names from the deck list above. No other text.
             val hash = hashSlot(frame, slotIndex)
             if (hash != null) {
                 templates[cardName] = hash
+                dimTemplates[cardName] = hash
                 alreadyCalibrated.add(cardName)
                 calibrated++
                 Log.i(TAG, "PHASH: Calibrated '$cardName' from slot $slotIndex (${templates.size} total)")
@@ -508,58 +601,145 @@ Use EXACT card names from the deck list above. No other text.
         // No frame.copy() needed — ScreenCaptureService keeps the previous frame
         // alive for one extra capture cycle (delayed recycling), so the frame
         // won't be recycled while we're cropping.
-        // Score all (slot, card) pairs
-        data class Match(val slot: Int, val card: String, val correlation: Float)
-        val allMatches = mutableListOf<Match>()
+        data class Candidate(val card: String, val score: Float)
+        data class SlotBest(val card: String, val score: Float, val margin: Float)
+
+        val slotHashes = mutableMapOf<Int, FloatArray>()
+        val candidatesBySlot = mutableMapOf<Int, List<Candidate>>()
+        val slotBest = mutableMapOf<Int, SlotBest>()
 
         for (slot in 0..4) {
             val hash = hashSlot(frame, slot) ?: continue
-            val threshold = if (slot == 4) MIN_CORRELATION_NEXT else MIN_CORRELATION
+            slotHashes[slot] = hash
 
+            val threshold = if (slot == 4) MIN_CORRELATION_NEXT else MIN_CORRELATION
+            val minMargin = if (slot == 4) MIN_MARGIN_NEXT else MIN_MARGIN
+
+            val scores = mutableListOf<Candidate>()
             for (cardName in deckCards) {
                 val normalTemplate = templates[cardName] ?: continue
-                val dimTemplate = dimTemplates[cardName]
+                ensureNormalized(normalTemplate)
+                val dimTemplate = dimTemplates[cardName] ?: normalTemplate
+                ensureNormalized(dimTemplate)
 
-                // Check both normal and desaturated templates, take the best
                 val corrNormal = cosineSimilarity(hash, normalTemplate)
-                val corrDim = if (dimTemplate != null) cosineSimilarity(hash, dimTemplate) else corrNormal
+                val corrDim = cosineSimilarity(hash, dimTemplate)
                 val corr = maxOf(corrNormal, corrDim)
-
-                if (corr > threshold) {
-                    allMatches.add(Match(slot, cardName, corr))
-                }
+                scores.add(Candidate(cardName, corr))
             }
-        }
 
-        // Diagnostic: log best match per slot so we can see actual correlation values
-        for (slot in 0..4) {
-            val slotMatches = allMatches.filter { it.slot == slot }.sortedByDescending { it.correlation }
-            if (slotMatches.isNotEmpty()) {
-                val best = slotMatches[0]
-                val secondBest = slotMatches.getOrNull(1)
-                val margin = if (secondBest != null) best.correlation - secondBest.correlation else best.correlation
-                Log.d(TAG, "PHASH: Slot $slot -> ${best.card} (${String.format("%.3f", best.correlation)}) " +
+            if (scores.isEmpty()) continue
+            scores.sortByDescending { it.score }
+            val best = scores[0]
+            val second = scores.getOrNull(1)
+            val margin = best.score - (second?.score ?: 0f)
+
+            Log.d(
+                TAG,
+                "PHASH: Slot $slot -> ${best.card} (${String.format("%.3f", best.score)}) " +
                         "margin=${String.format("%.3f", margin)}" +
-                        if (secondBest != null) " 2nd=${secondBest.card}(${String.format("%.3f", secondBest.correlation)})" else "")
+                        if (second != null) " 2nd=${second.card}(${String.format("%.3f", second.score)})" else ""
+            )
+
+            // Only consider a slot if it's both above threshold and separated from the runner-up.
+            if (best.score < threshold || margin < minMargin) continue
+            slotBest[slot] = SlotBest(best.card, best.score, margin)
+
+            // Keep top candidates; we'll solve uniqueness with a small search.
+            candidatesBySlot[slot] = scores.take(4)
+        }
+
+        // Brute-force best assignment (5 slots x 8 cards is tiny) to reduce swap errors.
+        val slotsToAssign = candidatesBySlot.keys.sortedBy { candidatesBySlot[it]?.size ?: 0 }
+        var bestTotal = -1f
+        var bestAssign: Map<Int, String> = emptyMap()
+
+        fun dfs(idx: Int, used: MutableSet<String>, current: MutableMap<Int, String>, total: Float) {
+            if (idx >= slotsToAssign.size) {
+                if (total > bestTotal) {
+                    bestTotal = total
+                    bestAssign = current.toMap()
+                }
+                return
             }
+            val slot = slotsToAssign[idx]
+            val cands = candidatesBySlot[slot] ?: emptyList()
+
+            for (cand in cands) {
+                if (cand.card in used) continue
+                used.add(cand.card)
+                current[slot] = cand.card
+                dfs(idx + 1, used, current, total + cand.score)
+                current.remove(slot)
+                used.remove(cand.card)
+            }
+
+            // Allow leaving slot unassigned.
+            dfs(idx + 1, used, current, total)
         }
 
-        // Greedy assignment: best correlation first, no reuse
-        allMatches.sortByDescending { it.correlation }
-        val result = mutableMapOf<Int, String>()
-        val usedSlots = mutableSetOf<Int>()
-        val usedCards = mutableSetOf<String>()
+        dfs(0, mutableSetOf(), mutableMapOf(), 0f)
 
-        for (match in allMatches) {
-            if (match.slot in usedSlots || match.card in usedCards) continue
-            result[match.slot] = match.card
-            usedSlots.add(match.slot)
-            usedCards.add(match.card)
-            if (usedSlots.size == 5) break // All 5 slots filled
-        }
+        val result = bestAssign.toMutableMap()
 
         // Atomic swap of hand state
         currentHand = result.toMap()
+
+        // Offline self-refinement: slowly adapt templates toward in-game crops when confidence is very high.
+        val now = System.currentTimeMillis()
+        var didRefine = false
+        for ((slot, card) in result) {
+            val best = slotBest[slot] ?: continue
+            if (best.score < REFINE_MIN_SCORE || best.margin < REFINE_MIN_MARGIN) continue
+
+            val prev = refineStreak[card] ?: 0
+            refineStreak[card] = prev + 1
+            if (refineStreak[card]!! < REFINE_MIN_STREAK) continue
+
+            val lastAt = lastRefineAtMs[card] ?: 0L
+            if (now - lastAt < REFINE_MIN_INTERVAL_MS) continue
+
+            val sample = slotHashes[slot] ?: continue
+            val tpl = templates[card] ?: continue
+            ensureNormalized(tpl)
+            for (i in tpl.indices) {
+                tpl[i] = (1f - REFINE_ALPHA) * tpl[i] + REFINE_ALPHA * sample[i]
+            }
+            l2Normalize(tpl)
+
+            val dim = dimTemplates[card]
+            if (dim != null) {
+                ensureNormalized(dim)
+                for (i in dim.indices) {
+                    dim[i] = (1f - REFINE_ALPHA) * dim[i] + REFINE_ALPHA * sample[i]
+                }
+                l2Normalize(dim)
+            } else {
+                dimTemplates[card] = tpl
+            }
+
+            lastRefineAtMs[card] = now
+            didRefine = true
+        }
+
+        // Reset streaks for cards not currently confidently detected.
+        val detectedCards = result.values.toSet()
+        val streakKeys = refineStreak.keys.toList()
+        for (card in streakKeys) {
+            if (card !in detectedCards) refineStreak[card] = 0
+        }
+
+        if (didRefine) {
+            val ctx = scanningContext
+            if (ctx != null && (now - lastSaveAtMs) >= REFINE_SAVE_DEBOUNCE_MS) {
+                lastSaveAtMs = now
+                try {
+                    saveTemplates(ctx)
+                } catch (e: Exception) {
+                    Log.w(TAG, "PHASH: Failed to save refined templates: ${e.message}")
+                }
+            }
+        }
 
         return result
     }
@@ -587,6 +767,8 @@ Use EXACT card names from the deck list above. No other text.
         }
 
         consecutiveNullFrames = 0
+        refineStreak.clear()
+        lastRefineAtMs.clear()
         Log.i(TAG, "PHASH: Starting background scan (${templates.size} templates, ${SCAN_INTERVAL_MS}ms interval)")
 
         scanJob = scope.launch {
@@ -681,6 +863,7 @@ Use EXACT card names from the deck list above. No other text.
      */
     fun loadTemplates(context: Context): Int {
         try {
+            scanningContext = context.applicationContext
             val dir = File(context.filesDir, TEMPLATES_DIR)
             if (!dir.exists()) return 0
 
@@ -701,6 +884,7 @@ Use EXACT card names from the deck list above. No other text.
                     for (i in normalHash.indices) {
                         normalHash[i] = buffer.getFloat()
                     }
+                    ensureNormalized(normalHash)
                     templates[cardName] = normalHash
 
                     // Load dim hash if present (file might be old format)
@@ -709,7 +893,10 @@ Use EXACT card names from the deck list above. No other text.
                         for (i in dimHash.indices) {
                             dimHash[i] = buffer.getFloat()
                         }
+                        ensureNormalized(dimHash)
                         dimTemplates[cardName] = dimHash
+                    } else {
+                        dimTemplates[cardName] = normalHash
                     }
 
                     loaded++
@@ -735,6 +922,9 @@ Use EXACT card names from the deck list above. No other text.
         templates.clear()
         dimTemplates.clear()
         currentHand = emptyMap()
+        refineStreak.clear()
+        lastRefineAtMs.clear()
+        scanningContext = null
 
         context?.let {
             try {
