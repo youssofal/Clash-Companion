@@ -222,7 +222,10 @@ class OverlayManager(private val context: Context) {
         // Auto-start hand scanning with ResNet classifier
         if (!HandDetector.isScanning && ScreenCaptureService.instance != null) {
             HandDetector.startScanning(CommandRouter.deckCards, context) { hand ->
-                handler.post { updateHandDisplay(hand) }
+                handler.post {
+                    updateHandDisplay(hand)
+                    CommandRouter.checkQueue()
+                }
             }
             updateStatus("Scanning hand (ResNet classifier)")
         }
@@ -230,6 +233,7 @@ class OverlayManager(private val context: Context) {
 
     fun hide() {
         HandDetector.stopScanning()
+        CommandRouter.clearQueue()
         overlayView?.let {
             windowManager.removeView(it)
             overlayView = null
@@ -248,7 +252,9 @@ class OverlayManager(private val context: Context) {
     fun updateHandDisplay(hand: Map<Int, String>) {
         val slots = (0..3).map { hand[it] ?: "?" }
         val next = hand[4] ?: "?"
-        handText?.text = "Hand: ${slots.joinToString(" | ")} | Next: $next"
+        val queueInfo = CommandRouter.getQueueDisplay()
+        val text = "Hand: ${slots.joinToString(" | ")} | Next: $next"
+        handText?.text = if (queueInfo.isNotEmpty()) "$text\nQueue:\n$queueInfo" else text
     }
 
     private fun saveScreenshot(bitmap: Bitmap): Boolean {

@@ -66,10 +66,11 @@ object CommandParser {
             return parseConditional(segment.removePrefix("if ").trim(), deckCards, transcript)
         }
 
-        // Step 5b: Queue pattern — "queue/next [card] [zone]"
+        // Step 5b: Queue pattern — "queue/next/then [card] [zone]"
         val queuePrefix = when {
             segment.startsWith("queue ") -> "queue "
             segment.startsWith("next ") -> "next "
+            segment.startsWith("then ") -> "then "
             else -> null
         }
         if (queuePrefix != null) {

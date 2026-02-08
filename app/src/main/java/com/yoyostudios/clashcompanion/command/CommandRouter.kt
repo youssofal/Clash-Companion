@@ -12,11 +12,12 @@ import com.yoyostudios.clashcompanion.util.Coordinates
 /**
  * Routes parsed commands to execution.
  *
- * Currently executes:
+ * Executes:
  *  - FAST path: card slot tap + zone tap via AccessibilityService
+ *  - QUEUE path: buffered commands that auto-play when card appears in hand
  *
  * Stubs (display-only, implemented in future milestones):
- *  - QUEUE (M7), TARGETING (M9), CONDITIONAL (M9), SMART (M8)
+ *  - TARGETING (M9), CONDITIONAL (M9), SMART (M8)
  */
 object CommandRouter {
 
@@ -36,9 +37,32 @@ object CommandRouter {
 
     private val handler = Handler(Looper.getMainLooper())
 
+    // ── Queue Path (M7) ────────────────────────────────────────────────
+
+    /** A buffered command waiting for a card to appear in hand */
+    data class QueuedCommand(
+        val card: String,
+        val zone: String,
+        val timestamp: Long = System.currentTimeMillis(),
+        /** Tracks last play attempt for elixir retry. 0 = never attempted. */
+        var lastAttemptMs: Long = 0L
+    )
+
+    /** FIFO queue of pending commands. Accessed only on main thread. */
+    private val commandQueue = mutableListOf<QueuedCommand>()
+
+    /** Queue entries expire after 2 minutes to prevent stale surprise plays */
+    private const val QUEUE_TIMEOUT_MS = 120_000L
+
+    /** Cooldown between retry attempts when card is in hand but elixir was low */
+    private const val QUEUE_RETRY_COOLDOWN_MS = 1500L
+
     /**
      * Main entry point. Called by SpeechService.onTranscript via OverlayManager.
      * Parses the transcript and routes to the appropriate execution tier.
+     *
+     * Supports "then"-chaining: "knight left then musketeer right" plays
+     * knight immediately and queues musketeer for auto-play when it appears.
      *
      * @param transcript raw STT output text
      * @param sttLatencyMs time taken by STT inference in milliseconds
@@ -53,20 +77,51 @@ object CommandRouter {
 
         val parseStart = System.currentTimeMillis()
 
-        // Parse the transcript
-        val cmd = CommandParser.parse(transcript, deckCards)
+        // Split on "then"/"than" for chained commands:
+        // "knight left then musketeer right" → play knight, queue musketeer
+        val cleaned = CommandParser.cleanTranscript(transcript)
+        val normalized = cleaned
+            .replace(" and then ", " then ")
+            .replace(" than ", " then ")
+        val thenParts = normalized.split(" then ")
 
-        val parseMs = System.currentTimeMillis() - parseStart
+        // Parse and route the primary (first) segment
+        val firstSegment = thenParts[0].trim()
+        if (firstSegment.isNotEmpty()) {
+            val cmd = CommandParser.parse(firstSegment, deckCards)
+            val parseMs = System.currentTimeMillis() - parseStart
 
-        Log.i(TAG, "CMD: tier=${cmd.tier} card='${cmd.card}' zone=${cmd.zone} " +
-                "conf=${String.format("%.2f", cmd.confidence)} " +
-                "parse=${parseMs}ms stt=${sttLatencyMs}ms raw='$transcript'")
+            Log.i(TAG, "CMD: tier=${cmd.tier} card='${cmd.card}' zone=${cmd.zone} " +
+                    "conf=${String.format("%.2f", cmd.confidence)} " +
+                    "parse=${parseMs}ms stt=${sttLatencyMs}ms raw='$transcript'")
 
-        // Route by tier
+            // Route by tier
+            routeCommand(cmd, parseMs, sttLatencyMs, transcript)
+        } else if (thenParts.size <= 1) {
+            // Empty transcript with no "then" part — ignore
+            Log.d(TAG, "CMD: Empty transcript, ignoring")
+        }
+
+        // Queue any "then"-chained segments
+        for (i in 1 until thenParts.size) {
+            val thenSegment = thenParts[i].trim()
+            if (thenSegment.isEmpty()) continue
+            queueThenSegment(thenSegment)
+        }
+    }
+
+    /**
+     * Route a parsed command to the correct execution tier.
+     */
+    private fun routeCommand(
+        cmd: CommandParser.ParsedCommand,
+        parseMs: Long,
+        sttLatencyMs: Long,
+        rawTranscript: String
+    ) {
         when (cmd.tier) {
             CommandTier.IGNORE -> {
-                // Silently ignore garbage — don't clutter overlay
-                Log.d(TAG, "CMD: Ignored '$transcript'")
+                Log.d(TAG, "CMD: Ignored '$rawTranscript'")
             }
 
             CommandTier.FAST -> {
@@ -74,18 +129,10 @@ object CommandRouter {
             }
 
             CommandTier.QUEUE -> {
-                // Stub: display only (M7)
-                val msg = if (cmd.card.isNotEmpty()) {
-                    "QUEUE: ${cmd.card} -> ${cmd.zone ?: "?"} (M7)"
-                } else {
-                    "QUEUE: couldn't parse (M7)"
-                }
-                overlay?.updateStatus(msg)
-                Log.i(TAG, "CMD: $msg")
+                executeQueuePath(cmd, parseMs, sttLatencyMs)
             }
 
             CommandTier.TARGETING -> {
-                // Stub: display only (M9)
                 val msg = if (cmd.card.isNotEmpty() && cmd.targetCard != null) {
                     "TARGET: ${cmd.card} the ${cmd.targetCard} (M9)"
                 } else {
@@ -96,7 +143,6 @@ object CommandRouter {
             }
 
             CommandTier.CONDITIONAL -> {
-                // Stub: display only (M9)
                 val msg = if (cmd.triggerCard != null && cmd.card.isNotEmpty()) {
                     "RULE: if ${cmd.triggerCard} -> ${cmd.card} ${cmd.zone ?: ""} (M9)"
                 } else {
@@ -107,9 +153,7 @@ object CommandRouter {
             }
 
             CommandTier.SMART -> {
-                // Stub: display only (M8)
                 if (cmd.card.isNotEmpty()) {
-                    // FIX-2: 5+ elixir card with no zone — prompt user
                     val msg = "Where? Say '${cmd.card} left/right/center'"
                     overlay?.updateStatus(msg)
                     Log.i(TAG, "CMD: $msg")
@@ -121,6 +165,163 @@ object CommandRouter {
             }
         }
     }
+
+    /**
+     * Queue a "then"-chained segment. Always adds to queue (never immediate).
+     * The user said "X then Y" — Y should wait, even if Y is in hand right now.
+     */
+    private fun queueThenSegment(segment: String) {
+        val cmd = CommandParser.parse(segment, deckCards)
+        if (cmd.card.isEmpty()) {
+            Log.w(TAG, "CMD: Then-chain couldn't parse: '$segment'")
+            return
+        }
+        val zone = cmd.zone ?: CommandParser.getDefaultZone(cmd.card)
+        if (zone == null) {
+            overlay?.updateStatus("Where? Say '${cmd.card} left/right/center'")
+            return
+        }
+        commandQueue.add(QueuedCommand(cmd.card, zone))
+        val msg = "THEN: ${cmd.card} -> $zone (queued)"
+        overlay?.updateStatus(msg)
+        Log.i(TAG, "CMD: $msg (${commandQueue.size} in queue)")
+    }
+
+    // ── Queue Path Execution ─────────────────────────────────────────────
+
+    /**
+     * Handle a QUEUE-tier command: "queue balloon bridge" / "next hog left" / "then hog left"
+     *
+     * Always adds to the command queue. If the card is already in hand,
+     * triggers checkQueue() immediately for a fast play attempt. If elixir
+     * is too low and the tap fails, checkQueue will retry every 1.5s until
+     * the card leaves hand (= successfully played).
+     */
+    private fun executeQueuePath(
+        cmd: CommandParser.ParsedCommand,
+        parseMs: Long,
+        sttLatencyMs: Long
+    ) {
+        // Validate: parser must have matched a card
+        if (cmd.card.isEmpty()) {
+            overlay?.updateStatus("Queue: couldn't parse card")
+            Log.w(TAG, "CMD: Queue parse failed for '${cmd.rawTranscript}'")
+            return
+        }
+
+        // Validate: zone must be present (5+ elixir with no zone returns null)
+        if (cmd.zone == null) {
+            val msg = "Where? Say '${cmd.card} left/right/center'"
+            overlay?.updateStatus(msg)
+            Log.i(TAG, "CMD: Queue needs zone — $msg")
+            return
+        }
+
+        // Always add to queue — checkQueue handles execution + elixir retry
+        commandQueue.add(QueuedCommand(cmd.card, cmd.zone))
+        Log.i(TAG, "CMD: QUEUED: ${cmd.card} -> ${cmd.zone} (${commandQueue.size} in queue)")
+
+        // If card is already in hand, trigger immediate play attempt
+        if (!isBusy && HandDetector.cardToSlot.containsKey(cmd.card)) {
+            checkQueue()
+        } else {
+            overlay?.updateStatus("QUEUED: ${cmd.card} -> ${cmd.zone} (waiting...)")
+        }
+    }
+
+    /**
+     * Check if any queued card has appeared in the player's hand.
+     * Called from OverlayManager's onHandChanged callback on the main thread.
+     *
+     * Retry-with-cooldown logic for elixir handling:
+     * - When a card is in hand, attempt to play it (tap card slot + zone)
+     * - Don't remove entry yet — if elixir was too low, the tap does nothing
+     * - Wait 1.5s cooldown before retrying (elixir regeneration time)
+     * - Remove entry only when card LEAVES hand (= successfully played)
+     *
+     * Executes at most one queued command per call (isBusy gates 500ms gap).
+     * FIFO iteration order — first eligible queued card wins.
+     */
+    fun checkQueue() {
+        if (isBusy || commandQueue.isEmpty()) return
+
+        val now = System.currentTimeMillis()
+
+        // Prune expired entries (>2 minutes old)
+        commandQueue.removeAll { now - it.timestamp > QUEUE_TIMEOUT_MS }
+        if (commandQueue.isEmpty()) return
+
+        val handSlots = HandDetector.cardToSlot
+
+        // Remove entries where we attempted to play and card is no longer in hand
+        // → card was successfully played, clean up
+        commandQueue.removeAll { q ->
+            q.lastAttemptMs > 0 && !handSlots.containsKey(q.card)
+        }
+        if (commandQueue.isEmpty()) return
+
+        // Find first queued card that's in hand and not cooling down
+        for (queued in commandQueue) {
+            // Card not in hand yet — skip, keep waiting
+            if (!handSlots.containsKey(queued.card)) continue
+
+            // Card is in hand but cooling down from a failed attempt (elixir too low)
+            if (queued.lastAttemptMs > 0 && now - queued.lastAttemptMs < QUEUE_RETRY_COOLDOWN_MS) continue
+
+            // Card is in hand and ready to play!
+            val isRetry = queued.lastAttemptMs > 0
+            queued.lastAttemptMs = now
+            val waitMs = now - queued.timestamp
+
+            Log.i(TAG, "CMD: Queue ${if (isRetry) "retry" else "triggered"} — " +
+                    "${queued.card} in hand (waited ${waitMs}ms)")
+
+            val msg = "QUEUE: ${queued.card} -> ${queued.zone}" +
+                    if (isRetry) " (retry)" else ""
+            overlay?.updateStatus(msg)
+
+            // Execute via Fast Path with full safety checks
+            executeFastPath(
+                CommandParser.ParsedCommand(
+                    tier = CommandTier.FAST,
+                    card = queued.card,
+                    zone = queued.zone,
+                    confidence = 1.0f,
+                    rawTranscript = "QUEUE auto-play"
+                ),
+                parseMs = 0,
+                sttLatencyMs = waitMs
+            )
+            return // One at a time — isBusy blocks until 500ms release
+        }
+    }
+
+    /**
+     * Clear all pending queue entries.
+     * Called from OverlayManager.hide() to prevent phantom plays.
+     */
+    fun clearQueue() {
+        val count = commandQueue.size
+        commandQueue.clear()
+        if (count > 0) {
+            overlay?.updateStatus("Queue cleared ($count removed)")
+            Log.i(TAG, "CMD: Queue cleared ($count entries)")
+        }
+    }
+
+    /**
+     * Get a display string of active queue entries for the overlay.
+     * Returns empty string if queue is empty.
+     */
+    fun getQueueDisplay(): String {
+        if (commandQueue.isEmpty()) return ""
+        return commandQueue.joinToString("\n") { q ->
+            val ago = (System.currentTimeMillis() - q.timestamp) / 1000
+            "  ${q.card} -> ${q.zone} (${ago}s)"
+        }
+    }
+
+    // ── Fast Path Execution ───────────────────────────────────────────────
 
     /**
      * Execute the Fast Path: tap card slot, then tap zone.
