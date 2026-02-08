@@ -42,6 +42,11 @@ object CommandRouter {
     /** Prevents rapid-fire double plays during tap animation */
     private var isBusy = false
 
+    // ── Last Played Tracking (for "follow up" lane coherence) ──────────
+    private var lastPlayedCard: String? = null
+    private var lastPlayedZone: String? = null
+    private var lastPlayedTimeMs: Long = 0L
+
     private val handler = Handler(Looper.getMainLooper())
 
     // Coroutine scope for Smart Path and Autopilot async calls
@@ -64,11 +69,18 @@ object CommandRouter {
         "take over", "ai play", "ai mode"
     )
 
-    /** Commands that toggle autopilot OFF */
+    /** Commands that toggle autopilot OFF (exact match) */
     private val AUTOPILOT_OFF_COMMANDS = setOf(
         "stop", "manual", "stop autopilot", "i got it", "stop auto",
-        "my turn", "cancel autopilot"
+        "my turn", "cancel autopilot",
+        // STT misrecognitions from live testing
+        "top autopilot", "autopilot stop", "autopillot stop",
+        "top auto", "stop pilot", "top autopillot",
+        "cancel auto", "cancel", "enough", "top"
     )
+
+    /** Keywords for contains-based stop detection (only when autopilot is already active) */
+    private val AUTOPILOT_OFF_KEYWORDS = setOf("stop", "manual", "cancel", "my turn", "i got it", "enough")
 
     // ── Queue Path (M7) ────────────────────────────────────────────────
 
@@ -122,7 +134,7 @@ object CommandRouter {
     fun handleTranscript(transcript: String, sttLatencyMs: Long) {
         val cleaned = CommandParser.cleanTranscript(transcript)
 
-        // ── Autopilot toggle (check before parsing) ───────────────────
+        // ── Autopilot toggle (check before parsing & before isBusy gate) ──
         if (cleaned in AUTOPILOT_ON_COMMANDS) {
             startAutopilot()
             return
@@ -131,9 +143,15 @@ object CommandRouter {
             stopAutopilot()
             return
         }
+        // Contains-based fallback: when autopilot is active, catch STT misrecognitions
+        if (isAutopilot && AUTOPILOT_OFF_KEYWORDS.any { cleaned.contains(it) }) {
+            stopAutopilot()
+            return
+        }
 
-        // Guard: don't fire while previous tap is animating
-        if (isBusy) {
+        // Guard: don't fire while previous tap is animating.
+        // Exception: when autopilot is active, user voice commands always take priority.
+        if (isBusy && !isAutopilot) {
             Log.d(TAG, "CMD: Busy, skipping '$transcript'")
             overlay?.updateStatus("Wait...")
             return
@@ -357,7 +375,7 @@ object CommandRouter {
     }
 
     /**
-     * Build the Gemini system prompt with deck, playbook, hand state, and arena.
+     * Build the Gemini system prompt with deck, playbook, hand state, arena, and last played context.
      */
     private fun buildSmartPrompt(): String {
         val deckJson = DeckManager.getDeckJson()
@@ -380,25 +398,33 @@ object CommandRouter {
         // Arena state from Roboflow (null-safe — may not be active)
         val arenaSection = buildArenaSection()
 
+        // Last played context for "follow up" lane coherence
+        val lastPlayedSection = if (lastPlayedCard != null && lastPlayedTimeMs > 0) {
+            val agoSec = (System.currentTimeMillis() - lastPlayedTimeMs) / 1000
+            "\nLAST PLAYED: $lastPlayedCard at $lastPlayedZone (${agoSec}s ago)"
+        } else ""
+
         return """You are a real-time Clash Royale tactical AI. Speed is critical — be decisive.
 
 DECK: $deckJson
 $playbookSection
 $handSection
-$arenaSection
+$arenaSection$lastPlayedSection
 
 VALID ZONES: left_bridge, right_bridge, center, behind_left, behind_right, back_center, front_left, front_right
 
 Rules:
-- ONLY suggest cards in CURRENT HAND
-- Use playbook defense_table for defend commands
-- Use card_placement_defaults when no specific zone implied
-- For "follow up" or "suggest": pick best offensive play for current hand
-- For ambiguous commands: safest positive-elixir-trade play
-- Buildings go in "center" or "behind_left"/"behind_right"
+- ONLY suggest cards in CURRENT HAND.
+- When user says "defend" or "defense": ALWAYS play a defensive card immediately. Trust the user — they see threats you cannot. Never return "wait". Use playbook defense_table. Place at center or the threatened lane.
+- When user says "push left" or "push right": play an offensive card at that bridge. Prefer win condition (Giant), then support troops (Musketeer, Archers), then cycle cards.
+- When user says "follow up": support LAST PLAYED card in the SAME LANE. Use playbook synergies (e.g. Giant + Musketeer, Giant + Archers). If last played was at left, play support at left. Never cross lanes for follow-up.
+- When user says "suggest" or gives a vague command: pick the best offensive play from current hand.
+- For ambiguous commands: safest positive-elixir-trade play.
+- Buildings go in "center" or "behind_left"/"behind_right".
+- NEVER return "wait" unless user explicitly asks to wait. Always play a card.
 
 Respond ONLY with JSON: {"action":"play","card":"<exact card name>","zone":"<zone_key>","reasoning":"<15 words max>"}
-Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
+Or ONLY if user says wait: {"action":"wait","reasoning":"<15 words max>"}"""
     }
 
     /**
@@ -477,7 +503,10 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
                         val systemPrompt = buildSmartPrompt()
                         GeminiClient.chat(
                             systemInstruction = systemPrompt,
-                            userMessage = "AUTOPILOT: Decide what to play next or wait. Consider elixir management, card cycle, and tempo. Be aggressive when at 8+ elixir.",
+                            userMessage = "AUTOPILOT: You MUST play a card NOW from your current hand. " +
+                                    "Never return wait — always play something. " +
+                                    "Prioritize: 1) Counter enemy threats. 2) Build pushes with synergies from the playbook. " +
+                                    "3) Cycle cheap cards (Knight, Archers) when no clear play. Always place cards — never idle.",
                             maxTokens = 256,
                             jsonMode = true
                         )
@@ -865,6 +894,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "Low confidence: $card? ($pct% < ${(threshold * 100).toInt()}%)"
             overlay?.updateStatus(msg)
             Log.w(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -878,6 +908,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "Not in hand: $card (hand: $handCards)"
             overlay?.updateStatus(msg)
             Log.w(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -885,6 +916,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "ERROR: Invalid slot index $slotIndex for $card"
             overlay?.updateStatus(msg)
             Log.e(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -901,6 +933,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
                 val msg = "ERROR: No zone for $card"
                 overlay?.updateStatus(msg)
                 Log.e(TAG, "CMD: $msg")
+                isBusy = false
                 return
             }
             val zoneCoords = Coordinates.ZONE_MAP[zone]
@@ -908,6 +941,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
                 val msg = "ERROR: Unknown zone '$zone'"
                 overlay?.updateStatus(msg)
                 Log.e(TAG, "CMD: $msg")
+                isBusy = false
                 return
             }
             zoneX = zoneCoords.first
@@ -920,6 +954,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "ERROR: Accessibility service not connected"
             overlay?.updateStatus(msg)
             Log.e(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -935,6 +970,11 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             overlay?.updateStatus(msg)
         }
         Log.i(TAG, "CMD: PLAY $card slot=$slotIndex ($slotX,$slotY) -> ($zoneX,$zoneY) ${totalMs}ms")
+
+        // Record last played for "follow up" lane coherence
+        lastPlayedCard = card
+        lastPlayedZone = zone
+        lastPlayedTimeMs = System.currentTimeMillis()
 
         // Make overlay transparent to touches so dispatchGesture doesn't hit overlay
         overlay?.setPassthrough(true)
