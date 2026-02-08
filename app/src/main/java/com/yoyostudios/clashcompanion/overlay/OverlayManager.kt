@@ -211,9 +211,12 @@ class OverlayManager(private val context: Context) {
 
                         // Auto-start scanning if enough templates
                         if (HandDetector.isCalibrated && !HandDetector.isScanning) {
-                            HandDetector.startScanning(CommandRouter.deckCards) { hand ->
-                                handler.post { updateHandDisplay(hand) }
-                            }
+                            HandDetector.startScanning(
+                                context = context,
+                                deckCards = CommandRouter.deckCards,
+                                onHandChanged = { hand -> handler.post { updateHandDisplay(hand) } },
+                                onStatus = { msg -> handler.post { updateStatus(msg) } }
+                            )
                             updateStatus("Scanning hand (${HandDetector.templateCount} templates)")
                         }
                     } finally {
@@ -274,9 +277,12 @@ class OverlayManager(private val context: Context) {
 
         // Auto-start hand scanning if CDN templates are ready and screen capture is running
         if (HandDetector.isCalibrated && !HandDetector.isScanning && ScreenCaptureService.instance != null) {
-            HandDetector.startScanning(CommandRouter.deckCards) { hand ->
-                handler.post { updateHandDisplay(hand) }
-            }
+            HandDetector.startScanning(
+                context = context,
+                deckCards = CommandRouter.deckCards,
+                onHandChanged = { hand -> handler.post { updateHandDisplay(hand) } },
+                onStatus = { msg -> handler.post { updateStatus(msg) } }
+            )
             updateStatus("Scanning hand (${HandDetector.templateCount} templates)")
         } else if (!HandDetector.isCalibrated) {
             updateStatus("Loading card templates...")
