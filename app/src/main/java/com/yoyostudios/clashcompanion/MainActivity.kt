@@ -286,8 +286,9 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         overlayManager?.hide()
-        HandDetector.stopScanning()
-        CardClassifier.destroy()
+        HandDetector.destroy()
+        // CardClassifier is a process-scoped singleton (PyTorch). Destroying it while a scan coroutine
+        // is mid-inference can crash native code (destroyed mutex). Let the OS clean up on process exit.
         scope.cancel()
     }
 }

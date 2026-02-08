@@ -865,6 +865,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "Low confidence: $card? ($pct% < ${(threshold * 100).toInt()}%)"
             overlay?.updateStatus(msg)
             Log.w(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -878,6 +879,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "Not in hand: $card (hand: $handCards)"
             overlay?.updateStatus(msg)
             Log.w(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -885,6 +887,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "ERROR: Invalid slot index $slotIndex for $card"
             overlay?.updateStatus(msg)
             Log.e(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
@@ -901,6 +904,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
                 val msg = "ERROR: No zone for $card"
                 overlay?.updateStatus(msg)
                 Log.e(TAG, "CMD: $msg")
+                isBusy = false
                 return
             }
             val zoneCoords = Coordinates.ZONE_MAP[zone]
@@ -908,6 +912,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
                 val msg = "ERROR: Unknown zone '$zone'"
                 overlay?.updateStatus(msg)
                 Log.e(TAG, "CMD: $msg")
+                isBusy = false
                 return
             }
             zoneX = zoneCoords.first
@@ -920,6 +925,7 @@ Or if waiting is better: {"action":"wait","reasoning":"<15 words max>"}"""
             val msg = "ERROR: Accessibility service not connected"
             overlay?.updateStatus(msg)
             Log.e(TAG, "CMD: $msg")
+            isBusy = false
             return
         }
 
