@@ -25,7 +25,7 @@ import java.util.concurrent.TimeUnit
 object RoboflowClient {
 
     private const val TAG = "ClashCompanion"
-    private const val BASE_URL = "https://detect.roboflow.com"
+    private const val BASE_URL = "https://serverless.roboflow.com"
 
     /**
      * Roboflow model ID. Format: "{project_id}/{version}".
@@ -34,7 +34,7 @@ object RoboflowClient {
      *   - Nejc Zavodnik: "clash-royale-esvmi/1" (107 classes, 1300 images)
      *   - AngelFire: "clash-royale-cylln/1" (cards/HP bars, not troop positions)
      */
-    var modelId = "clash-royale-esvmi/1"
+    var modelId = "clash-royale-cylln/1"
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -63,7 +63,7 @@ object RoboflowClient {
 
         val url = "$BASE_URL/$modelId" +
                 "?api_key=$apiKey" +
-                "&confidence=${(confidence * 100).toInt()}"
+                "&confidence=$confidence"
 
         val requestBody = imageBase64.toRequestBody(FORM_MEDIA_TYPE)
 

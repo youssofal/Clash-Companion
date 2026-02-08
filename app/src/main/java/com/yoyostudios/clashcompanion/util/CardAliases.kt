@@ -42,6 +42,9 @@ object CardAliases {
         // "knight center"
         "night center" to ("Knight" to "center"),
         "night middle" to ("Knight" to "center"),
+        "night centre" to ("Knight" to "center"),
+        "night entered" to ("Knight" to "center"),
+        "nice hunter" to ("Knight" to "center"),
         // "loon bridge" -> heard as "loombridge"
         "loombridge" to ("Balloon" to "left_bridge"),
         "loom bridge" to ("Balloon" to "left_bridge"),
@@ -72,8 +75,56 @@ object CardAliases {
         "musketeerleft" to ("Musketeer" to "left_bridge"),
         // "mini pekka right" -> STT produces "mini peckerite"
         "mini peckerite" to ("Mini P.E.K.K.A" to "right_bridge"),
-        "mini peckerite" to ("Mini P.E.K.K.A" to "right_bridge"),
         "mini peckered" to ("Mini P.E.K.K.A" to "right_bridge"),
+        "mini peck aright" to ("Mini P.E.K.K.A" to "right_bridge"),
+        "you peck a right" to ("Mini P.E.K.K.A" to "right_bridge"),
+        "many pack are left" to ("Mini P.E.K.K.A" to "left_bridge"),
+        "any peer left" to ("Mini P.E.K.K.A" to "left_bridge"),
+
+        // ── Giant STT garbage (from live testing — STT cannot reliably produce "giant") ──
+        // "giant right" -> STT produces john/jane/china/chant variants
+        "john wright" to ("Giant" to "right_bridge"),
+        "jane wright" to ("Giant" to "right_bridge"),
+        "china write" to ("Giant" to "right_bridge"),
+        "china right" to ("Giant" to "right_bridge"),
+        "chant rate" to ("Giant" to "right_bridge"),
+        "chant right" to ("Giant" to "right_bridge"),
+        "china wright" to ("Giant" to "right_bridge"),
+        "john right" to ("Giant" to "right_bridge"),
+        "jane right" to ("Giant" to "right_bridge"),
+        "john write" to ("Giant" to "right_bridge"),
+        // "giant left" -> STT produces chine/chance/straight/which variants
+        "chine left" to ("Giant" to "left_bridge"),
+        "chance left" to ("Giant" to "left_bridge"),
+        "giant lift" to ("Giant" to "left_bridge"),
+        "chine lift" to ("Giant" to "left_bridge"),
+        "which i left" to ("Giant" to "left_bridge"),
+        "which i'd left" to ("Giant" to "left_bridge"),
+        "straight left" to ("Giant" to "left_bridge"),
+        "joy laughed" to ("Giant" to "left_bridge"),
+        "john left" to ("Giant" to "left_bridge"),
+        "china left" to ("Giant" to "left_bridge"),
+
+        // ── Arrows STT garbage ──
+        "hours left" to ("Arrows" to "left_bridge"),
+        "hours right" to ("Arrows" to "right_bridge"),
+        "i rose left" to ("Arrows" to "left_bridge"),
+        "i rose right" to ("Arrows" to "right_bridge"),
+        "i rose a bottom left" to ("Arrows" to "bottom left"),
+        "aristot bottom left" to ("Arrows" to "bottom left"),
+        "rose bottom left" to ("Arrows" to "bottom left"),
+        "there is a bottom left" to ("Arrows" to "bottom left"),
+
+        // ── Fireball STT garbage ──
+        "firebright" to ("Fireball" to "right_bridge"),
+        "firete" to ("Fireball" to "right_bridge"),
+        "fire be left" to ("Fireball" to "left_bridge"),
+        "barbart" to ("Fireball" to "right_bridge"),
+        "far beluffed" to ("Fireball" to "left_bridge"),
+
+        // ── Minions STT ──
+        "minie's left" to ("Minions" to "left_bridge"),
+        "minie's right" to ("Minions" to "right_bridge"),
     )
 
     // ── Card aliases: lowercase alias -> proper-case official name ──────
@@ -93,11 +144,15 @@ object CardAliases {
 
         "minions" to "Minions",
         "minion" to "Minions",
+        "minie's" to "Minions",        // STT: "minions" -> "minie's"
+        "minies" to "Minions",         // STT variant
 
         "arrows" to "Arrows",
         "arrow" to "Arrows",
         "ours" to "Arrows",            // STT: "arrows" -> "ours"
         "hours" to "Arrows",           // STT variant
+        "rose" to "Arrows",            // STT: "arrows" -> "rose"
+        "aristot" to "Arrows",         // STT: "arrows" -> "aristot"
 
         "fireball" to "Fireball",
         "fire ball" to "Fireball",
@@ -105,6 +160,12 @@ object CardAliases {
 
         "giant" to "Giant",
         "giants" to "Giant",           // STT: "giant's" cleaned to "giants"
+        "john" to "Giant",             // STT: "giant" -> "john" (consistent)
+        "jane" to "Giant",             // STT: "giant" -> "jane"
+        "china" to "Giant",            // STT: "giant" -> "china"
+        "chine" to "Giant",            // STT: "giant" -> "chine"
+        "chance" to "Giant",           // STT: "giant" -> "chance"
+        "chant" to "Giant",            // STT: "giant" -> "chant"
 
         "musketeer" to "Musketeer",
         "musky" to "Musketeer",
