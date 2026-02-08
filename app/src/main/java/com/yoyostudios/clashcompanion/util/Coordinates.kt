@@ -27,6 +27,65 @@ object Coordinates {
     private fun y(refY: Float): Float = refY / REF_H * screenH
     private fun pos(refX: Float, refY: Float): Pair<Float, Float> = Pair(x(refX), y(refY))
 
+    /** Scale a reference width dimension to actual screen pixels */
+    private fun dimW(refDim: Float): Int = (refDim / REF_W * screenW).toInt()
+
+    /** Scale a reference height dimension to actual screen pixels */
+    private fun dimH(refDim: Float): Int = (refDim / REF_H * screenH).toInt()
+
+    // ── Card Slot ROIs for pHash cropping ────────────────────────────────
+    // Bounding boxes for the card ART area (not the full card frame).
+    // Derived from calibrated slot centers: x=350,520,690,860 at y=2130.
+    // Card art crop: 140px wide × 130px tall, starting ~100px above center.
+    //
+    // IMPORTANT: These use RAW pixel values for the 1080x2340 screen capture
+    // frame, NOT scaled via displayMetrics. ScreenCaptureService captures the
+    // full resolution including nav bar, while displayMetrics excludes it.
+    // Use frameScaled() variants when cropping from a captured Bitmap.
+
+    data class CardSlotROI(val x: Int, val y: Int, val w: Int, val h: Int)
+
+    // Reference ROI values (1080x2340 full-frame coordinates)
+    // Pixel-verified from in-game screenshot analysis on Samsung A35
+    private val REF_CARD_ROIS = listOf(
+        CardSlotROI(248, 2025, 177, 215), // slot 0 (leftmost)
+        CardSlotROI(452, 2025, 176, 215), // slot 1
+        CardSlotROI(654, 2025, 177, 215), // slot 2
+        CardSlotROI(858, 2025, 177, 215), // slot 3 (rightmost)
+    )
+    private val REF_NEXT_ROI = CardSlotROI(61, 2215, 79, 110)
+
+    /**
+     * Get card slot ROIs scaled to actual frame dimensions.
+     * Call with the actual captured frame size, NOT displayMetrics.
+     */
+    fun getCardSlotROIs(frameW: Int, frameH: Int): List<CardSlotROI> {
+        if (frameW == REF_W.toInt() && frameH == REF_H.toInt()) return REF_CARD_ROIS
+        val sx = frameW / REF_W
+        val sy = frameH / REF_H
+        return REF_CARD_ROIS.map { roi ->
+            CardSlotROI(
+                (roi.x * sx).toInt(), (roi.y * sy).toInt(),
+                (roi.w * sx).toInt(), (roi.h * sy).toInt()
+            )
+        }
+    }
+
+    /** Get next-card ROI scaled to actual frame dimensions. */
+    fun getNextCardROI(frameW: Int, frameH: Int): CardSlotROI {
+        if (frameW == REF_W.toInt() && frameH == REF_H.toInt()) return REF_NEXT_ROI
+        val sx = frameW / REF_W
+        val sy = frameH / REF_H
+        return CardSlotROI(
+            (REF_NEXT_ROI.x * sx).toInt(), (REF_NEXT_ROI.y * sy).toInt(),
+            (REF_NEXT_ROI.w * sx).toInt(), (REF_NEXT_ROI.h * sy).toInt()
+        )
+    }
+
+    /** Convenience: get ROIs using raw reference values (for 1080x2340 frames) */
+    val CARD_SLOT_ROIS: List<CardSlotROI> get() = REF_CARD_ROIS
+    val NEXT_CARD_ROI: CardSlotROI get() = REF_NEXT_ROI
+
     // ── Card Slot Centers (bottom of screen, 4 visible cards) ──
     val CARD_SLOT_1 get() = pos(350f, 2130f)
     val CARD_SLOT_2 get() = pos(520f, 2130f)

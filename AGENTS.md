@@ -24,14 +24,15 @@ app/src/main/
 │   │   ├── CommandParser.kt              # Fuzzy match + aliases
 │   │   └── CommandQueue.kt              # Queue + Conditional buffers
 │   ├── strategy/
-│   │   ├── OpusCoach.kt                  # Pre-match deck analysis
-│   │   └── HaikuPlayer.kt               # Real-time tactical decisions
+│   │   ├── OpusCoach.kt                  # Pre-match deck analysis (Claude Opus)
+│   │   └── GeminiPlayer.kt              # Real-time tactical decisions (Gemini 3 Flash)
 │   ├── deck/
 │   │   └── DeckManager.kt               # Share link parse + cr-api-data
 │   ├── overlay/
 │   │   └── OverlayManager.kt            # WindowManager + ComposeView overlay HUD
 │   ├── api/
-│   │   ├── AnthropicClient.kt           # Claude API wrapper
+│   │   ├── AnthropicClient.kt           # Claude API wrapper (Opus)
+│   │   ├── GeminiClient.kt             # Gemini API wrapper (Flash — strategy + vision)
 │   │   └── RoboflowClient.kt           # Roboflow API wrapper
 │   ├── ui/
 │   │   └── theme/

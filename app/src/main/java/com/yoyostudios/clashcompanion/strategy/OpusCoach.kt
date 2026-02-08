@@ -8,11 +8,11 @@ import java.io.File
 
 /**
  * Pre-match deck analyzer using Claude Opus.
- * Generates a strategic playbook JSON that Haiku uses during gameplay (M8).
+ * Generates a strategic playbook JSON that Gemini Flash uses during gameplay (M8).
  *
  * Coach + Player architecture:
  *   Opus (this) = Coach: deep analysis once per deck load, 15-30s
- *   Haiku (M8)  = Player: real-time decisions using this playbook, <800ms
+ *   Gemini Flash (M8) = Player: real-time decisions using this playbook, <500ms
  */
 object OpusCoach {
 

@@ -20,8 +20,12 @@ import android.widget.TextView
 import com.yoyostudios.clashcompanion.accessibility.ClashCompanionAccessibilityService
 import com.yoyostudios.clashcompanion.capture.ScreenCaptureService
 import com.yoyostudios.clashcompanion.command.CommandRouter
+import com.yoyostudios.clashcompanion.detection.HandDetector
 import com.yoyostudios.clashcompanion.speech.SpeechService
 import com.yoyostudios.clashcompanion.util.Coordinates
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class OverlayManager(private val context: Context) {
 
@@ -32,6 +36,7 @@ class OverlayManager(private val context: Context) {
     private val windowManager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private var overlayView: View? = null
     private var statusText: TextView? = null
+    private var handText: TextView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private val handler = Handler(Looper.getMainLooper())
 
@@ -161,6 +166,65 @@ class OverlayManager(private val context: Context) {
         }
         layout.addView(btnListen)
 
+        // Hand state display (green text showing detected cards)
+        val handDisplay = TextView(context).apply {
+            text = ""
+            setTextColor(Color.argb(255, 100, 255, 100))
+            textSize = 11f
+        }
+        handText = handDisplay
+        layout.addView(handDisplay)
+
+        // Refine calibration via Gemini Flash vision (optional fallback)
+        // Primary templates come from CDN art at deck load time.
+        val btnCalibrate = Button(context).apply {
+            text = "Refine Calibrate"
+            textSize = 12f
+            setOnClickListener {
+                val frame = ScreenCaptureService.getLatestFrame()
+                if (frame == null || frame.isRecycled) {
+                    updateStatus("ERROR: Start screen capture first")
+                    return@setOnClickListener
+                }
+                if (CommandRouter.deckCards.size < 4) {
+                    updateStatus("ERROR: Load a deck first")
+                    return@setOnClickListener
+                }
+                // CRITICAL: Copy the frame NOW before ScreenCaptureService recycles it.
+                // getLatestFrame() returns the live bitmap that gets recycled on next capture.
+                val frameCopy = frame.copy(frame.config ?: Bitmap.Config.ARGB_8888, false)
+                if (frameCopy == null) {
+                    updateStatus("ERROR: Failed to copy frame")
+                    return@setOnClickListener
+                }
+                updateStatus("Calibrating with Gemini Flash...")
+                isEnabled = false
+                CoroutineScope(Dispatchers.Main).launch {
+                    try {
+                        HandDetector.calibrateWithVision(
+                            frameCopy, CommandRouter.deckCards, context
+                        ) { progress ->
+                            handler.post { updateStatus(progress) }
+                        }
+
+                        updateStatus("Calibrated: ${HandDetector.templateCount}/8 cards")
+
+                        // Auto-start scanning if enough templates
+                        if (HandDetector.isCalibrated && !HandDetector.isScanning) {
+                            HandDetector.startScanning(CommandRouter.deckCards) { hand ->
+                                handler.post { updateHandDisplay(hand) }
+                            }
+                            updateStatus("Scanning hand (${HandDetector.templateCount} templates)")
+                        }
+                    } finally {
+                        frameCopy.recycle()
+                        isEnabled = true
+                    }
+                }
+            }
+        }
+        layout.addView(btnCalibrate)
+
         // Save screenshot test button
         val btnScreenshot = Button(context).apply {
             text = "Save Screenshot"
@@ -207,13 +271,25 @@ class OverlayManager(private val context: Context) {
         windowManager.addView(layout, params)
         CommandRouter.overlay = this
         Log.i(TAG, "Overlay shown")
+
+        // Auto-start hand scanning if CDN templates are ready and screen capture is running
+        if (HandDetector.isCalibrated && !HandDetector.isScanning && ScreenCaptureService.instance != null) {
+            HandDetector.startScanning(CommandRouter.deckCards) { hand ->
+                handler.post { updateHandDisplay(hand) }
+            }
+            updateStatus("Scanning hand (${HandDetector.templateCount} templates)")
+        } else if (!HandDetector.isCalibrated) {
+            updateStatus("Loading card templates...")
+        }
     }
 
     fun hide() {
+        HandDetector.stopScanning()
         overlayView?.let {
             windowManager.removeView(it)
             overlayView = null
             statusText = null
+            handText = null
             layoutParams = null
             Log.i(TAG, "Overlay hidden")
         }
@@ -222,6 +298,12 @@ class OverlayManager(private val context: Context) {
     fun updateStatus(message: String) {
         statusText?.text = message
         Log.i(TAG, "Status: $message")
+    }
+
+    fun updateHandDisplay(hand: Map<Int, String>) {
+        val slots = (0..3).map { hand[it] ?: "?" }
+        val next = hand[4] ?: "?"
+        handText?.text = "Hand: ${slots.joinToString(" | ")} | Next: $next"
     }
 
     private fun saveScreenshot(bitmap: Bitmap): Boolean {

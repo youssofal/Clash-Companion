@@ -12,16 +12,28 @@ Android overlay app for Clash Royale voice control. Supercell AI Hackathon, 48h 
 - All pixel coordinates hardcoded to 1080x2340
 
 ## Tech Stack
-- Kotlin, Gradle KTS, XML layouts (no Jetpack Compose)
+- Kotlin, Gradle KTS, Jetpack Compose (Material 3) for all UI
+- Compose + WindowManager via ComposeView for overlay HUD
 - On-device STT: sherpa-onnx + Moonshine Base (62M params)
 - On-device VAD: Silero VAD (bundled with sherpa-onnx)
 - Hand detection: pHash correlation (pure Kotlin, no OpenCV)
 - Arena vision: Roboflow hosted API (cloud, not on-device YOLO)
-- Real-time strategy: Claude Haiku 4.5 (cloud)
-- Pre-match analysis: Claude Opus 4.6 (cloud, one-time)
+- Real-time strategy: Gemini 3 Flash (cloud, Google AI API)
+- Vision calibration: Gemini 3 Flash (cloud, multimodal)
+- Pre-match analysis: Claude Opus 4.6 (cloud, Anthropic API, one-time)
 - Input injection: Accessibility Service + dispatchGesture()
 - Screen capture: MediaProjection API
 
+## Design Standard — Clash Royale Aesthetic
+- The app must look and feel like it belongs in the Clash Royale ecosystem
+- CR-authentic palette: warm teal backgrounds (#1A7F8F), orange-gold buttons (#F5A623), thick 2dp borders
+- Diamond quilted background pattern (Compose Canvas), 3D gradient buttons, text drop shadows
+- Luckiest Guy font for display text, Inter for body/overlay text
+- Custom Canvas-drawn tier icons (bolt, cards, crosshair, crown, shield) — no emoji, no Material icons
+- CrButton (3D gold/cyan gradient), CrCard (thick-bordered teal panel), crBackground modifier
+- Sticky bottom launch button on MainActivity — never scroll to start
+- The overlay HUD and MainActivity are both judge-facing — treat them as premium UI
+
 ## API Keys
 - Stored in local.properties (git-ignored)
-- Exposed via BuildConfig.ANTHROPIC_API_KEY and BuildConfig.ROBOFLOW_API_KEY
+- Exposed via BuildConfig.ANTHROPIC_API_KEY, BuildConfig.GEMINI_API_KEY, and BuildConfig.ROBOFLOW_API_KEY

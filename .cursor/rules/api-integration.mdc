@@ -1,18 +1,27 @@
 ---
-description: Anthropic and Roboflow API reference
+description: Anthropic, Gemini, and Roboflow API reference
 globs: "**/api/**,**/network/**,**/strategy/**"
 ---
 
 # API Integration Reference
 
-## Anthropic (Claude)
+## Anthropic (Claude) — Opus only (pre-match analysis)
 - Direct HTTP via OkHttp, no SDK
 - Endpoint: POST https://api.anthropic.com/v1/messages
 - Headers: x-api-key, anthropic-version: 2023-06-01, content-type: application/json
 - Opus model string: "claude-opus-4-6-20250116"
-- Haiku model string: "claude-haiku-4-5-20241022"
-- Haiku: request structured JSON output, must respond <800ms
 - API key: BuildConfig.ANTHROPIC_API_KEY
+
+## Google Gemini (Flash) — real-time strategy + vision calibration
+- Direct HTTP via OkHttp, no SDK
+- Endpoint: POST https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key={API_KEY}
+- API key as URL query param, NOT header
+- Model string: "gemini-3-flash-preview"
+- Request body: { contents: [{ parts: [...] }], systemInstruction: { parts: [{ text }] }, generationConfig: { ... } }
+- Vision: parts array with { inline_data: { mime_type, data } } for images
+- Structured JSON output: set generationConfig.responseMimeType = "application/json"
+- Must respond <500ms for Smart Path
+- API key: BuildConfig.GEMINI_API_KEY
 
 ## Roboflow
 - Direct HTTP via OkHttp

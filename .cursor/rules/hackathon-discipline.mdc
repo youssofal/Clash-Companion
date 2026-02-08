@@ -5,16 +5,23 @@ alwaysApply: true
 
 # Hackathon Discipline
 
-- 48-hour solo build. Working code over perfect code.
+- 48-hour solo build. Ship a product, not a prototype.
+- Design quality is a FIRST-CLASS deliverable — judges evaluate presentation alongside technical depth.
+- The app must look like a funded startup product, not a weekend hack.
 - Follow the milestone plan in docs/clash-companion-final-plan-v2.md
 - Write complete, runnable code — no TODO stubs
 - If a task exceeds 1.5x its time estimate, flag it
 - The deliverable is a video demo (editable) + public GitHub repo
 
 ## Scope Triage
-- MUST SHIP: Tap injection, screen capture, STT, parser, Fast Path, pHash hand detection, Queue Path, polished overlay
-- SHOULD SHIP: Deck loading + Opus playbook, Smart Path (Haiku)
+- MUST SHIP: Tap injection, screen capture, STT, parser, Fast Path, pHash hand detection, Queue Path, premium overlay UI, polished MainActivity
+- SHOULD SHIP: Deck loading + Opus playbook, Smart Path (Gemini Flash)
 - CUT IF BEHIND SAT 6 PM: Roboflow targeting + conditional triggers
+
+## Design Is Non-Negotiable
+- Every screen the judge sees must be polished: branded, animated, themed
+- The overlay HUD is on camera for the ENTIRE demo video — it IS the product surface
+- A beautiful app with 3 tiers beats an ugly app with 5 tiers
 
 ## Out of Scope
 - Multiple games, on-device YOLO, on-device LLM, iOS

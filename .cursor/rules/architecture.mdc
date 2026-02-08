@@ -11,7 +11,7 @@ Commands route most-specific to least-specific:
 2. **Queue** — "queue/next [card] [zone]" — pHash hand watch + auto-play (~170ms + wait)
 3. **Targeting** — "[spell] the [troop]" — Roboflow locate + place spell (~400-600ms)
 4. **Fast Path** — "[card] [zone]" — fuzzy match + pHash slot + tap (~170ms, fully on-device)
-5. **Smart Path** — ambiguous/strategic intent — Claude Haiku + Opus playbook (~700-1000ms)
+5. **Smart Path** — ambiguous/strategic intent — Gemini 3 Flash + Opus playbook (~500-800ms)
 
 ## Core Services
 - `ClashCompanionAccessibilityService` — tap injection via safeTap(), touch-state gated

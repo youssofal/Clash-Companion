@@ -5,6 +5,7 @@ import android.os.Looper
 import android.util.Log
 import com.yoyostudios.clashcompanion.accessibility.ClashCompanionAccessibilityService
 import com.yoyostudios.clashcompanion.command.CommandParser.CommandTier
+import com.yoyostudios.clashcompanion.detection.HandDetector
 import com.yoyostudios.clashcompanion.overlay.OverlayManager
 import com.yoyostudios.clashcompanion.util.Coordinates
 
@@ -24,27 +25,10 @@ object CommandRouter {
     /** Set by OverlayManager when overlay is shown */
     var overlay: OverlayManager? = null
 
-    /** TEMP: Hardcoded demo deck — replaced by DeckManager in M4/5 */
+    /** Current deck card names — set by DeckManager, used by CommandParser */
     var deckCards = listOf(
         "Knight", "Archers", "Minions", "Arrows",
         "Fireball", "Giant", "Musketeer", "Mini P.E.K.K.A"
-    )
-
-    /**
-     * TEMP: Hardcoded card-to-slot mapping — replaced by pHash in M6.
-     * Maps ALL 8 deck cards to slots 0-3. Without pHash we don't know
-     * which 4 are in hand, so this is a best guess. Some plays will
-     * hit the wrong slot — that's expected until M6.
-     */
-    var cardSlotMap = mutableMapOf(
-        "Knight" to 0,
-        "Archers" to 1,
-        "Minions" to 2,
-        "Arrows" to 3,
-        "Fireball" to 0,
-        "Giant" to 1,
-        "Musketeer" to 2,
-        "Mini P.E.K.K.A" to 3
     )
 
     /** Prevents rapid-fire double plays during tap animation */
@@ -160,10 +144,19 @@ object CommandRouter {
             return
         }
 
-        // Check card is in hand (slot map)
-        val slotIndex = cardSlotMap[card]
+        // Check card is in hand via pHash detection (M6)
+        val slotIndex = HandDetector.cardToSlot[card]
         if (slotIndex == null) {
-            val msg = "Not in hand: $card"
+            // Only show hand slots 0-3, not next-card slot 4
+            val handCards = HandDetector.currentHand
+                .filterKeys { it < 4 }
+                .entries.sortedBy { it.key }
+                .joinToString { it.value }
+            val msg = if (HandDetector.isCalibrated) {
+                "Not in hand: $card (hand: $handCards)"
+            } else {
+                "Calibrate first! Tap Calibrate on overlay"
+            }
             overlay?.updateStatus(msg)
             Log.w(TAG, "CMD: $msg")
             return

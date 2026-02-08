@@ -34,7 +34,7 @@ object AnthropicClient {
     /**
      * Send a message to Claude and return the response text.
      *
-     * @param model Model ID (e.g. "claude-opus-4-6", "claude-haiku-4-5-20251001")
+     * @param model Model ID (e.g. "claude-opus-4-6")
      * @param systemPrompt System prompt text
      * @param userMessage User message text
      * @param maxTokens Maximum tokens in response

@@ -42,6 +42,12 @@ class ScreenCaptureService : Service() {
     private var imageReader: ImageReader? = null
     private val latestFrame = AtomicReference<Bitmap?>(null)
 
+    // Keep the previous frame alive for one extra capture cycle.
+    // This prevents the bitmap recycling race where the HandDetector scanner
+    // reads a frame via getLatestFrame() and it gets recycled before cropping finishes.
+    // Cost: ~10MB extra memory. Benefit: zero recycled-bitmap crashes in scanner.
+    private var previousFrame: Bitmap? = null
+
     private var screenWidth = 0
     private var screenHeight = 0
     private var screenDensity = 0
@@ -133,8 +139,11 @@ class ScreenCaptureService : Service() {
                     bitmap
                 }
 
-                // Recycle old frame
-                latestFrame.getAndSet(cropped)?.recycle()
+                // Delayed recycling: recycle frame from TWO captures ago, not the previous one.
+                // The scanner may still be reading the previous frame on another thread.
+                val oldPrevious = previousFrame
+                previousFrame = latestFrame.getAndSet(cropped)
+                oldPrevious?.recycle()
             } catch (e: Exception) {
                 Log.e(TAG, "ScreenCapture frame error: ${e.message}")
             } finally {
@@ -178,6 +187,8 @@ class ScreenCaptureService : Service() {
         virtualDisplay?.release()
         imageReader?.close()
         mediaProjection?.stop()
+        previousFrame?.recycle()
+        previousFrame = null
         latestFrame.get()?.recycle()
         latestFrame.set(null)
         instance = null

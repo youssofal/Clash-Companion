@@ -58,7 +58,7 @@ The project combines FIVE distinct AI technologies in a single real-time system:
 1. **On-device Speech Recognition** (Moonshine via sherpa-onnx)
 2. **On-device Voice Activity Detection** (Silero VAD)
 3. **Computer Vision Object Detection** (Roboflow YOLO for arena troops)
-4. **LLM Strategic Reasoning** (Claude Haiku 4.5 for real-time decisions)
+4. **LLM Strategic Reasoning** (Gemini 3 Flash for real-time decisions)
 5. **LLM Deep Analysis** (Claude Opus 4.6 for pre-match deck strategy)
 
 The architectural innovation is an **intelligent five-tier routing system** that automatically selects the fastest execution path for each command type — from 170ms on-device-only execution for simple placements, to 800ms cloud-LLM-powered strategic decisions for complex tactical commands.
@@ -243,8 +243,8 @@ One UI aggressively kills background services. MediaProjection and audio capture
 **Decision: Five-tier routing instead of one pipeline.**
 *Rationale:* A single pipeline would either be too slow for simple commands (if it always calls LLM) or too dumb for complex commands (if it never does). The router is a ~5ms regex/pattern check that picks the optimal path. This is the core architectural innovation.
 
-**Decision: Two-model LLM architecture (Opus + Haiku).**
-*Rationale:* Opus does deep strategic analysis once, pre-match (can take 30s, nobody cares — edit it out in the video). Haiku makes snap decisions during gameplay using Opus's playbook (must be <1s). This is analogous to a coach preparing game film vs. a player calling audibles. Neither model alone achieves both depth and speed.
+**Decision: Two-model LLM architecture (Opus + Gemini Flash).**
+*Rationale:* Opus does deep strategic analysis once, pre-match (can take 30s, nobody cares — edit it out in the video). Gemini 3 Flash makes snap decisions during gameplay using Opus's playbook (must be <1s). This is analogous to a coach preparing game film vs. a player calling audibles. Neither model alone achieves both depth and speed.
 
 **Decision: Deck share link for card loading, not vision scan.**
 *Rationale:* Share links encode card IDs deterministically — zero error rate, instant, offline. The format is confirmed stable: `https://link.clashroyale.com/deck/en?deck=26000002;26000001;...` with semicolon-separated numeric IDs. RoyaleAPI, DeckShop, and the in-game share feature all use this same format. Parsing is trivial. Vision-based deck scanning introduces hallucination risk for the most critical data in the system.
@@ -260,7 +260,7 @@ One UI aggressively kills background services. MediaProjection and audio capture
 | ⚡ | **Fast Path** | `[card] [zone]` | ~170ms | No | "balloon bridge right" |
 | 📋 | **Queue Path** | `queue/next [card] [zone]` | ~170ms + wait | No | "queue balloon bridge" |
 | 🎯 | **Targeting Path** | `[spell] the [troop]` | ~400-600ms | Roboflow | "fireball the hog rider" |
-| 🧠 | **Smart Path** | Ambiguous/strategic | ~700-1000ms | Claude Haiku | "defend against hog rider" |
+| 🧠 | **Smart Path** | Ambiguous/strategic | ~500-800ms | Gemini Flash | "defend against hog rider" |
 | ⏱️ | **Conditional Path** | `if [troop] [action]` | ~400ms + wait | Roboflow | "if hog drop cannon" |
 
 ## Tier 1: Fast Path (⚡ ~170ms)
@@ -363,10 +363,10 @@ Transcript → Fuzzy match spell/card name → 5ms
 **This is the LLM wow factor. This is what wins the hackathon.**
 
 **Examples:**
-- "defend against hog rider" → Haiku checks playbook → picks Cannon at center
-- "support my golem" → Haiku picks Night Witch or Baby Dragon behind the golem
-- "counter his push" → Haiku analyzes arena state → picks best response
-- "push left lane" → Haiku picks an offensive card for left bridge
+- "defend against hog rider" → Gemini Flash checks playbook → picks Cannon at center
+- "support my golem" → Gemini Flash picks Night Witch or Baby Dragon behind the golem
+- "counter his push" → Gemini Flash analyzes arena state → picks best response
+- "push left lane" → Gemini Flash picks an offensive card for left bridge
 
 **Pipeline:**
 ```
@@ -374,7 +374,7 @@ Transcript → No simple pattern match → Route to Smart Path
           → Assemble context:
               {deck_cards, opus_playbook, current_hand (from pHash),
                arena_state (from Roboflow cache), command_text}
-          → Call Claude Haiku 4.5 API (structured output) → 500-800ms
+          → Call Gemini 3 Flash API → 300-500ms
           → Receive: {"card": "Cannon", "zone": "center",
                       "reasoning": "Counters Hog Rider for +1 elixir trade"}
           → Validate: is card in current hand? → Yes → Execute via safeTap()
@@ -384,7 +384,7 @@ Transcript → No simple pattern match → Route to Smart Path
 
 **Why this latency is acceptable:** When a human says "defend against hog rider," they're making a strategic request. A human would take 2-5 seconds to think about which card to play. The AI doing it in under 1 second IS the wow.
 
-**The Opus playbook makes Haiku dramatically smarter:** Without the playbook, Haiku reasons from general CR knowledge in 500ms. With the playbook, it pattern-matches against pre-computed strategy. This transforms a reasoning problem into a lookup problem.
+**The Opus playbook makes Gemini Flash dramatically smarter:** Without the playbook, Gemini Flash reasons from general CR knowledge in 300ms. With the playbook, it pattern-matches against pre-computed strategy. This transforms a reasoning problem into a lookup problem.
 
 ## Tier 5: Conditional Path (⏱️ ~400ms + wait)
 
@@ -493,7 +493,7 @@ fun routeCommand(transcript: String, deck: DeckInfo, hand: HandState, arena: Are
 
 ### Method C: Vision Scan (Tertiary — Demo Visual Moment)
 
-- Screenshot of deck screen sent to Claude Haiku 4.5 (vision) → returns card names
+- Screenshot of deck screen sent to Gemini 3 Flash (vision) → returns card names
 - Use as a VISUAL moment in the demo video ("the AI is reading my deck"), even if share link is the actual primary method
 
 ---
@@ -508,7 +508,7 @@ fun routeCommand(transcript: String, deck: DeckInfo, hand: HandState, arena: Are
 | **STT** | Moonshine Base (62M) via sherpa-onnx | On-device (CPU, arm64) | 60-150ms | See detailed rationale below. |
 | **Hand Detection** | pHash / grayscale correlation | On-device (pure Kotlin math) | <5ms | No model needed. 8 candidates only. |
 | **Arena Detection** | YOLO via Roboflow Hosted API | Cloud (Roboflow) | 200-400ms | See corrected model info in Section 9. |
-| **Real-time Strategy** | Claude Haiku 4.5 (structured output) | Cloud (Anthropic API) | 500-800ms TTFT | Fastest reliable structured output. GA, not beta. |
+| **Real-time Strategy** | Gemini 3 Flash | Cloud (Google AI API) | 300-500ms | Fastest frontier model. Pro-grade reasoning at Flash speed. |
 | **Pre-match Analysis** | Claude Opus 4.6 | Cloud (Anthropic API) | 15-30s (one-time) | Deepest strategic reasoning. Only runs once per deck load. |
 
 ## STT Decision: Moonshine Base via sherpa-onnx
@@ -566,7 +566,7 @@ Add 300ms silence padding before and after each detected speech segment. Ensures
 |----------|-------|-------------|------|
 | **pHash correlation** | <5ms | None (pure Kotlin math) | Very low |
 | OpenCV template matching | ~10-20ms | OpenCV NDK | Medium |
-| Claude Haiku vision | ~500ms | Network + API | Medium |
+| Gemini Flash vision | ~300ms | Network + API | Medium |
 | On-device classifier | ~50-100ms | TFLite + training | High |
 
 Only matching among 8 known cards. Correlation achieves near-perfect accuracy with zero dependencies.
@@ -770,10 +770,10 @@ If you are behind schedule by Saturday 6 PM, cut Roboflow entirely. Fast Path + 
 - Generates comprehensive strategic playbook as structured JSON
 - Deep reasoning about matchups, synergies, counter-tables, placement rules
 
-**Claude Haiku 4.5 (Player):**
+**Gemini 3 Flash (Player):**
 - Runs per-command during match, only when Smart Path triggered
-- Must respond in <800ms
-- Uses Opus playbook as context in system prompt
+- Must respond in <500ms
+- Uses Opus playbook as context in system instruction
 - Makes snap tactical decisions with playbook as cheat sheet
 
 ## Opus Prompt (Deck Analysis)
@@ -810,7 +810,7 @@ Generate a comprehensive strategic playbook as JSON with these sections:
 Respond ONLY with valid JSON. No other text.
 ```
 
-## Haiku System Prompt (During Match)
+## Gemini Flash System Instruction (During Match)
 
 ```
 You are a real-time Clash Royale tactical advisor. Speed is critical — be decisive.
@@ -829,11 +829,11 @@ Rules:
 Respond ONLY: {"card": "<name>", "zone": "<zone>", "reasoning": "<max 15 words>"}
 ```
 
-## Why Opus + Haiku > Haiku Alone
+## Why Opus + Gemini Flash > Gemini Flash Alone
 
-Without playbook: Haiku must recall general CR knowledge, reason about deck strengths, evaluate matchups, choose card + placement — all in ~500ms.
+Without playbook: Gemini Flash must recall general CR knowledge, reason about deck strengths, evaluate matchups, choose card + placement — all in ~300ms.
 
-With playbook: Haiku looks up the relevant entry, checks if card is in hand, returns. ~200ms of actual reasoning, rest is network latency. Transforms reasoning into lookup.
+With playbook: Gemini Flash looks up the relevant entry, checks if card is in hand, returns. ~100ms of actual reasoning, rest is network latency. Transforms reasoning into lookup.
 
 ---
 
@@ -927,7 +927,7 @@ class ClashCompanionAccessibilityService : AccessibilityService() {
 | **⚡ Fast** | <200ms | VAD 30ms + STT 60-150ms + Parse <5ms + pHash <5ms + Tap 75ms |
 | **📋 Queue** | <200ms + wait | Same as Fast + variable wait for card cycle |
 | **🎯 Target** | <600ms | STT ~170ms + Roboflow cache <5ms (or fresh call 200-400ms) + Tap 100ms |
-| **🧠 Smart** | <1200ms | STT ~180ms + Context <10ms + Haiku 500-800ms + Validate <5ms + Tap 100ms |
+| **🧠 Smart** | <900ms | STT ~180ms + Context <10ms + Gemini Flash 300-500ms + Validate <5ms + Tap 100ms |
 | **⏱️ Conditional** | 1100-2100ms from opponent play | Roboflow poll 500-1000ms + Debounce 500-1000ms + Tap 100ms |
 
 **VAD trailing silence setting:** 200-250ms recommended. Aggressive (150ms) risks cutting words. Conservative (400ms) adds felt latency.
@@ -992,39 +992,249 @@ Cards costing 5+ elixir REQUIRE explicit location word. Don't guess placement fo
 Before ANY execution: verify card is in current hand via pHash. If not → "Not in hand" error.
 
 ### Smart Path Validation
-After Haiku returns: verify card is in hand. If not → Queue it instead of erroring.
+After Gemini Flash returns: verify card is in hand. If not → Queue it instead of erroring.
 
 ---
 
 # 15. UI OVERLAY & APP DESIGN
 
-## Overlay Elements
+## Design Philosophy
+
+**The app must look and feel like it belongs in the Clash Royale ecosystem.** Not a fintech dashboard, not a dev prototype. Based on direct visual analysis of CR's main menu UI: warm teal backgrounds with diamond quilted texture, 3D-style buttons with gradient fills, thick visible borders, text shadows on headers, and filled 3D-style icons.
+
+**UI framework: Jetpack Compose with Material 3.** All UI surfaces are built in Compose. The overlay uses `ComposeView` inside `WindowManager`. No new XML layouts.
+
+## Design System
+
+### Color Palette (CR-Authentic, from screenshot analysis)
+
+**Background family (warm teal-blue with diamond quilted pattern):**
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `crTealDark` | `#0E4B5A` | Recessed panels, cards, overlay backdrop |
+| `crTealMid` | `#1A7F8F` | Main background (quilted pattern base) |
+| `crTealLight` | `#2596A8` | Lighter diamond pattern highlights |
+| `crTealBorder` | `#2BA5B8` | Card/panel borders (thick, 2dp, visible) |
+
+**Primary action (orange-gold gradient, matches CR's "Battle" button):**
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `crGoldLight` | `#FFB347` | Top of button gradient |
+| `crGold` | `#F5A623` | Mid gold, main accent |
+| `crGoldDark` | `#D4891A` | Bottom of gradient, pressed state |
+| `crGoldBorder` | `#C07A15` | 3D bottom shadow edge on buttons |
+
+**Tier colors (tuned for teal backgrounds):**
+| Token | Hex | Tier | Usage |
+|-------|-----|------|-------|
+| `fastGreen` | `#4ADE80` | Fast Path | Tier badge, latency text |
+| `queueCyan` | `#67E8F9` | Queue Path | Queue entries, buffer indicators |
+| `targetGold` | `#F5A623` | Targeting | Vision targeting |
+| `smartPurple` | `#C084FC` | Smart Path | LLM reasoning, Opus/Gemini |
+| `conditionalOrange` | `#FB923C` | Conditional | Rule indicators |
+| `error` | `#EF4444` | — | Errors, failures |
+| `micActive` | `#22D3EE` | — | Listening state, pulse ring |
+
+**Text:**
+| Token | Hex | Usage |
+|-------|-----|-------|
+| `textPrimary` | `#FFFFFF` | White with drop shadow on headers |
+| `textSecondary` | `#B0D4E0` | Light teal-tinted descriptions |
+| `textGold` | `#FFD740` | Gold highlights, important info |
+| `textDim` | `#5A8A98` | Disabled states, metadata |
+
+### Typography
+
+**Dual-font system:**
+- **Luckiest Guy** (Google Fonts, bundled) — chunky display font, closest free match to Supercell-Magic. Used for titles and headers. All Luckiest Guy text has a `Shadow(Black 50%, offset 2px, blur 4px)` for CR-style 3D depth.
+- **Inter** (Google Fonts, bundled) — clean body/label/overlay font for readability at small sizes.
+
+| Style | Font | Weight | Size | Usage |
+|-------|------|--------|------|-------|
+| `displayLarge` | Luckiest Guy | Regular | 34sp | App title "CLASH COMPANION" |
+| `headlineMedium` | Luckiest Guy | Regular | 24sp | Section headers "SETUP", "DECK" |
+| `headlineSmall` | Luckiest Guy | Regular | 20sp | Button text "LAUNCH COMPANION" |
+| `titleMedium` | Inter | SemiBold | 16sp | Card names, tier labels |
+| `bodyLarge` | Inter | Regular | 16sp | Body text |
+| `bodyMedium` | Inter | Regular | 14sp | Descriptions |
+| `labelLarge` | Inter | SemiBold | 14sp | Badge labels, status chips |
+| `labelSmall` | Inter | Medium | 11sp | Overlay HUD text |
+| `mono` | JetBrains Mono | Medium | 13sp | Latency numbers |
+
+### Spacing Tokens
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `xs` | 4dp | Icon-to-text gaps, tight padding |
+| `sm` | 8dp | Intra-component spacing |
+| `md` | 16dp | Inter-component spacing, card padding |
+| `lg` | 24dp | Section gaps, screen edge padding |
+| `xl` | 32dp | Major section separation |
+| `xxl` | 48dp | Top-of-screen breathing room |
+
+### Corner Radii
+
+| Token | Value | Usage |
+|-------|-------|-------|
+| `sm` | 8dp | Small chips, badges, tier indicators |
+| `md` | 12dp | Cards, panels, overlay backdrop |
+| `lg` | 16dp | Permission cards, deck display |
+| `full` | 999dp | Circular buttons, mic indicator |
+
+---
+
+## Surface 1: In-Game Overlay HUD
+
+**Position:** Top-left of screen, below status bar. Must NOT obscure: card hand (bottom), elixir bar, or arena center.
+
+**Dimensions:** Max width 320dp, auto-height based on content. Semi-transparent backdrop (`surfaceContainerHigh` at 85% opacity) with `md` corner radius and a subtle 1dp border at 10% white.
+
+### Layout Structure
 
 ```
-┌─────────────────────────────────┐
-│ 🎙️ Listening...                │  ← Microphone state
-│ ⚡ "balloon bridge" → 147ms     │  ← Last command + tier + latency
-│ 🧠 Cannon at center            │  ← LLM reasoning (Smart Path only)
-│   "Counters Hog, +1 elixir"   │
-│ 📋 Queue: Balloon → Bridge     │  ← Active queued commands
-│ ⏱️ Rule: if Hog → Cannon      │  ← Active conditional rules
-└─────────────────────────────────┘
+┌─ Overlay HUD (320dp max width, top-left) ─────────────────┐
+│                                                             │
+│  ● Listening          [Collapse ▲]                          │
+│                                                             │
+│  ┌─ Last Command ────────────────────────────────────────┐  │
+│  │ ⚡ "balloon bridge"                           147ms   │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌─ AI Reasoning (Smart Path only, animated in) ─────────┐  │
+│  │ 🧠 Cannon → center                                    │  │
+│  │    "Counters Hog Rider, +1 elixir trade"              │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+│  ┌─ Active Buffers (only when items exist) ──────────────┐  │
+│  │ 📋 Balloon → Bridge                                   │  │
+│  │ ⏱️ if Hog → Cannon                                    │  │
+│  └───────────────────────────────────────────────────────┘  │
+│                                                             │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-**Color coding by tier:** ⚡ green, 📋 blue, 🎯 yellow, 🧠 purple, ⏱️ orange
-**Audio feedback:** Confirm beep, error beep, queue trigger sound
+### Overlay Behaviors & Animations
 
-## App UI Quality
+**Mic indicator:** Pulsing ring animation when listening (Canvas drawCircle with animated radius and alpha). Solid dot when idle. Color shifts from `textTertiary` (idle) to `micActive` (listening) with `animateColorAsState`.
 
-**This is a differentiator.** Most hackathon apps look like dev prototypes. Clash Companion should have:
-- Clean, branded landing screen with "Clash Companion" title
-- Setup wizard for permissions (Accessibility, Overlay, Microphone, Screen Capture)
-- Deck display showing 8 cards with elixir costs after share link import
-- Opus analysis progress indicator with streaming results
-- Polished overlay that doesn't look like debug output
-- Consistent color scheme and iconography
+**Command feed:** Each new command slides in from left with `AnimatedVisibility(slideInHorizontally)`. Previous command fades to secondary opacity. Tier badge is a small rounded chip with the tier color background and white text (e.g., green chip with "FAST" in white).
 
-**The app UI + 4K trailer + landing page are part of the competition strategy.** Judges evaluate presentation quality alongside technical depth.
+**Latency counter:** Monospace font (`JetBrains Mono`), tier-colored. Animates number counting up from 0 to final value over 300ms using `Animatable`.
+
+**AI reasoning panel:** Only visible during Smart Path. `AnimatedVisibility(expandVertically)` — slides down smoothly when Gemini Flash returns reasoning, collapses when next command fires.
+
+**Active buffers section:** Only visible when queue/conditional items exist. Each entry has a small tier-colored dot on the left. Items animate out with `shrinkVertically` when consumed.
+
+**Collapse/expand:** Small chevron button at top-right. Tapping collapses to mic indicator only (minimal mode for gameplay). `animateContentSize()` on the root container.
+
+**Touch passthrough:** Entire overlay has `FLAG_NOT_TOUCHABLE` during tap injection. The collapse button is the only interactive element; the rest is display-only during gameplay.
+
+---
+
+## Surface 2: MainActivity (Setup & Configuration)
+
+**This is the first screen judges see when they install from GitHub.** It must immediately signal premium quality.
+
+### Screen Structure
+
+```
+┌─ MainActivity ──────────────────────────────────────────────┐
+│                                                               │
+│  [Status Bar — transparent, dark icons]                       │
+│                                                               │
+│       ◉ CLASH COMPANION                                      │
+│       Play Clash Royale With Your Voice                       │
+│                                                               │
+│  ┌─ Setup Steps (vertical cards) ────────────────────────┐   │
+│  │                                                        │   │
+│  │  [✓] Overlay Permission              Granted ●         │   │
+│  │  [✓] Accessibility Service           Enabled ●         │   │
+│  │  [✓] Microphone                      Granted ●         │   │
+│  │  [ ] Screen Capture                  Tap to start      │   │
+│  │  [ ] Speech Engine                   Not started        │   │
+│  │                                                        │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                               │
+│  ┌─ Deck Section ────────────────────────────────────────┐   │
+│  │                                                        │   │
+│  │  No deck loaded                                        │   │
+│  │  Share a deck link from Clash Royale to load.          │   │
+│  │                                                        │   │
+│  │  ── or after loading: ──                               │   │
+│  │                                                        │   │
+│  │  Hog 2.6 Cycle           Avg 2.6 elixir               │   │
+│  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐                          │   │
+│  │  │Hog │ │Musk│ │Fire│ │Log │   (card grid with        │   │
+│  │  │ 4  │ │ 4  │ │ 4  │ │ 2  │    elixir badges)        │   │
+│  │  └────┘ └────┘ └────┘ └────┘                          │   │
+│  │  ┌────┐ ┌────┐ ┌────┐ ┌────┐                          │   │
+│  │  │Skel│ │Cann│ │IceS│ │IceG│                          │   │
+│  │  │ 1  │ │ 3  │ │ 1  │ │ 2  │                          │   │
+│  │  └────┘ └────┘ └────┘ └────┘                          │   │
+│  │                                                        │   │
+│  │  🧠 Opus Playbook: Generated ✓                        │   │
+│  │     "Chip cycle deck, outcycle counters..."            │   │
+│  │                                                        │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                               │
+│  ┌────────────────────────────────────────────────────────┐   │
+│  │         ▶  LAUNCH COMPANION                            │   │
+│  └────────────────────────────────────────────────────────┘   │
+│                                                               │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### MainActivity Design Details
+
+**App title:** `displayLarge` weight, `textPrimary` color. Subtitle in `bodyMedium`, `textSecondary`.
+
+**Setup steps:** Each permission is a horizontal row inside a `Surface` card. Left side: checkbox icon (filled green when granted, outlined gray when pending). Right side: status text color-coded (green = done, `textSecondary` = pending). Tapping a pending row triggers the permission flow. Completed rows are non-interactive. The entire section animates checkmarks with `AnimatedVisibility(scaleIn)` when a permission is granted on return.
+
+**Deck section:** When empty, shows a clean placeholder message. When loaded, displays a 4x2 grid of card tiles. Each tile is a `Surface` card with:
+- Card name (abbreviated, `labelLarge`)
+- Elixir cost badge (small circle with number, tier-colored by cost)
+- Background tinted subtly by card type (troop/spell/building)
+
+**Opus playbook status:** Animated progress indicator (Material 3 `LinearProgressIndicator` with indeterminate mode) while Opus is analyzing. On completion, slides in the archetype name and a one-line strategy summary. Uses `smartPurple` accent.
+
+**Launch button:** Full-width, bottom of screen. `fastGreen` background, bold white text. Disabled (grayed out) until all required permissions are granted. Ripple effect on tap. When tapped, launches overlay and shows a snackbar: "Companion active — switch to Clash Royale."
+
+### Permission State Detection
+
+On `onResume()`, re-check all permission states and update UI reactively. Use `mutableStateOf` for each permission so Compose recomposes automatically.
+
+---
+
+## Audio Feedback
+
+| Event | Sound | Duration |
+|-------|-------|----------|
+| Command executed (Fast/Queue) | Short rising chime | 150ms |
+| Smart Path returned | Two-tone confirmation | 200ms |
+| Error / "not in hand" | Low buzz | 100ms |
+| Queue item triggered | Soft click | 100ms |
+| Conditional rule triggered | Alert tone | 150ms |
+
+Use `SoundPool` with pre-loaded WAV files in `res/raw/`. Keep all sounds under 200ms — they must not interfere with the next voice command's VAD detection.
+
+---
+
+## App Icon
+
+Adaptive icon with:
+- **Foreground:** Stylized microphone merged with a lightning bolt (representing voice + speed). White/cyan on transparent.
+- **Background:** Deep navy/dark gradient matching `surface` color.
+- Monochrome variant for Android 13+ themed icons.
+
+---
+
+## Design Non-Negotiables
+
+1. **No raw text.** Every piece of text has a defined style from the typography scale.
+2. **No unstyled surfaces.** Every panel, card, and container uses the color system with proper elevation/opacity.
+3. **No jarring transitions.** Every state change (permission granted, command received, queue consumed) is animated.
+4. **No wasted space.** Every pixel serves information density or breathing room — never accidental gaps.
+5. **The overlay must be beautiful on camera.** It will be visible in every frame of the demo video. It IS the product.
 
 ---
 
@@ -1043,7 +1253,7 @@ After Haiku returns: verify card is in hand. If not → Queue it instead of erro
 
 ### SHOULD SHIP — Adds LLM wow factor, moderate risk
 - M4/5: Deck loading + Opus playbook generation
-- M8: Smart Path (Claude Haiku with Opus playbook)
+- M8: Smart Path (Gemini 3 Flash with Opus playbook)
 
 ### CUT IF BEHIND BY SATURDAY 6 PM — Highest risk, lowest predictability
 - M9: Roboflow targeting + conditional triggers
@@ -1218,13 +1428,13 @@ If M3 is complete and you're still sharp, start deck loading. Otherwise, first t
 ✅ COMMIT: "M7 — Queue Path working"
 ```
 
-### Milestone 8: Smart Path / Claude Haiku (3:00 – 5:30 PM, 2.5 hours)
+### Milestone 8: Smart Path / Gemini Flash (3:00 – 5:30 PM, 2.5 hours)
 
-**Goal:** Strategic voice commands via Haiku + Opus playbook.
+**Goal:** Strategic voice commands via Gemini Flash + Opus playbook.
 
 **Steps:**
-1. Implement Anthropic API client (Kotlin + OkHttp)
-2. Build Haiku system prompt template with playbook injection
+1. Implement Gemini API client (Kotlin + OkHttp)
+2. Build Gemini Flash system instruction template with playbook injection
 3. Implement context assembly (hand + playbook + command)
 4. Structured output config → parse JSON response
 5. Validate card in hand → execute via safeTap()
@@ -1355,7 +1565,7 @@ Emergency fixes only. No new features.
 ### Smart Path (45 seconds)
 - "defend against his push" → Claude picks optimal card
 - 🧠 Cannon at center — "Counters Hog, +1 elixir trade" — 834ms
-- "Claude Haiku uses the Opus playbook to make pro-level decisions in under a second"
+- "Gemini Flash uses the Opus playbook to make pro-level decisions in under a second"
 
 ### Queue + Conditional (30 seconds)
 - "if he plays balloon, drop musketeer" → auto-triggers
@@ -1454,7 +1664,7 @@ Pre-built APK available in Releases to avoid building from source.
 | **Opponent plays same card twice** | Conditional fires on first detection. Default "fire once" for demo safety. |
 | **Smart Path returns card not in hand** | Validate → if not in hand, Queue it automatically. |
 | **Network down** | Smart/Targeting paths fail gracefully. Fast + Queue paths fully offline. |
-| **Haiku malformed JSON** | Try-catch → retry once → error. Structured output GA makes this very rare. |
+| **Gemini Flash malformed JSON** | Try-catch → retry once → error. Use responseMimeType: application/json for structured output. |
 | **Roboflow model wrong for troop detection** | Test MinesBot AND Nejc Zavodnik during M9. Fall back to manual coordinate targeting. |
 | **Samsung kills background service** | Foreground service type + battery optimization disabled + pinned in recents. |
 
@@ -1484,13 +1694,15 @@ Pre-built APK available in Releases to avoid building from source.
 
 | Service | What | Action |
 |---------|------|--------|
-| **Anthropic API** | API key with billing | platform.claude.com → API Keys |
+| **Anthropic API** | API key with billing (Opus only) | platform.claude.com → API Keys |
+| **Google AI Studio** | Gemini API key (Flash) | aistudio.google.com → Get API Key |
 | **Roboflow** | Core plan ($99/mo) + API key | app.roboflow.com → signup → upgrade |
 | **SAI** | Split APK Installer | Install from Play Store (for restricted settings bypass) |
 
 Store keys in `local.properties` (git-ignored):
 ```properties
 ANTHROPIC_API_KEY=sk-ant-...
+GEMINI_API_KEY=AIza...
 ROBOFLOW_API_KEY=...
 ```
 
@@ -1503,7 +1715,7 @@ ROBOFLOW_API_KEY=...
 | Service | Usage | Cost |
 |---------|-------|------|
 | Claude Opus 4.6 | ~20 analyses | ~$2.50 |
-| Claude Haiku 4.5 | ~500 commands | ~$1.50 |
+| Gemini 3 Flash | ~500 commands + calibrations | ~$0.50 |
 | Roboflow Core | 1 month | $99 |
 | **Total** | | **~$103** |
 
@@ -1546,7 +1758,7 @@ Budget is unlimited. Irrelevant but noted for completeness.
 
 > "**Clash Companion** uses a five-tier AI routing system to play Clash Royale by voice — a voice-controlled companion for hands-free gameplay.
 >
-> Before each match, **Claude Opus** analyzes your specific deck and generates a strategic playbook. During gameplay, simple commands execute in **170 milliseconds** using on-device Moonshine speech recognition. Spell targeting uses **real-time YOLO vision** to track moving troops. Strategic commands use **Claude Haiku** with the Opus playbook to make pro-level decisions in under a second.
+> Before each match, **Claude Opus** analyzes your specific deck and generates a strategic playbook. During gameplay, simple commands execute in **170 milliseconds** using on-device speech recognition. Spell targeting uses **real-time YOLO vision** to track moving troops. Strategic commands use **Gemini 3 Flash** with the Opus playbook to make pro-level decisions in under a second.
 >
 > All running on a **$300 Samsung Galaxy A35**. Five AI technologies. One intelligent system. Open source."
 

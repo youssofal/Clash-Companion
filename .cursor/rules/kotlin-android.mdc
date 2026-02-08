@@ -5,12 +5,27 @@ globs: "**/*.kt,**/*.kts"
 
 # Kotlin / Android Patterns
 
+## Core
 - Coroutines for async (Dispatchers.IO for network/disk, Dispatchers.Main for UI)
 - OkHttp for HTTP (Anthropic API, Roboflow API)
 - Gson for JSON parsing
-- XML layouts + WindowManager for overlays (no Jetpack Compose)
 - foregroundServiceType="microphone" on audio capture service
 - Accessibility Service may run in separate process — use broadcast or shared state for cross-service communication
 - All pixel coordinates are for 1080x2340 (Samsung A35) — hardcode them
 - Error handling: try-catch with Log.e(TAG, ...), fail gracefully
 - Package: com.yoyostudios.clashcompanion
+
+## UI Framework: Jetpack Compose (Material 3)
+- ALL new UI must be built with Jetpack Compose — no new XML layouts
+- MainActivity: `setContent { }` with Compose, Material 3 theme
+- Overlay HUD: `ComposeView` added to `WindowManager` — Compose renders inside overlay window
+- Use `remember`, `mutableStateOf`, `LaunchedEffect` for reactive state
+- Use `animateAsState`, `AnimatedVisibility`, `AnimatedContent` for fluid transitions
+- Material 3 components: `Surface`, `Card`, `Text`, `Icon`, `Button` with custom theming
+- Custom `CompositionLocalProvider` for the app's design tokens (colors, typography, spacing)
+- Canvas API for custom drawing (mic pulse ring, tier glow effects)
+
+## Design-First Development
+- Every UI element must have: proper spacing, consistent colors, readable typography, and smooth animation
+- Never ship raw text or unstyled components — if it's visible to the user, it must be designed
+- Overlay must feel like a premium heads-up display, not debug output
