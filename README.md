@@ -49,17 +49,65 @@ It's also an **accessibility tool** — enabling players with motor impairments 
 | **Smart Path** | "defend", "follow up", "push right" | ~1.5s | Gemini Flash picks the optimal card using Opus playbook. |
 | **Autopilot** | "autopilot" / "play for me" | ~4s/play | AI plays the entire match. Toggle on/off by saying "autopilot". |
 
-## Quick Start
+## Quick Start (Pre-Built APK)
+
+No build needed — just install and play. Voice commands work **fully offline**.
+
+### Step 1: Install the APK
+
+Download the APK from the [Releases page](https://github.com/youssofal/Clash-Commander/releases/tag/v1.0.0) and install it on your Android phone. You may need to allow "Install from unknown sources" in your settings.
+
+> **Android 13+ users:** After installing, go to **Settings > Apps > Clash Commander > ⋮ (three dots) > Allow restricted settings**. This is required for the Overlay and Accessibility permissions to work.
+
+### Step 2: Open the App and Complete the Checklist
+
+When you open Clash Commander, you'll see a setup checklist with 6 items. Tap each one to set it up:
+
+| # | Step | What to Do |
+|---|------|------------|
+| 1 | **Share Deck from Clash Royale** | Tap to open Clash Royale. Go to your battle deck, tap **Share**, and select **Clash Commander** from the share sheet. Your 8 cards will load into the app. |
+| 2 | **Screen Overlay** | Tap to open system settings. Find **Clash Commander** and toggle **Allow display over other apps** ON. Press back to return. |
+| 3 | **Tap Control** | Tap to open Accessibility settings. Find **Clash Commander**, tap it, and toggle it ON. Confirm the permission dialog. Press back to return. |
+| 4 | **Microphone** | Tap to grant microphone permission. Select **Allow**. |
+| 5 | **Screen Capture** | Tap to start screen capture. A system dialog will ask to record your screen — tap **Start now**. |
+| 6 | **Voice Engine** | Tap to start the speech recognition engine. This loads the on-device AI model (~7 seconds). Wait until it shows **READY**. |
+
+Once all 6 items show a green checkmark, the **LAUNCH COMMANDER** button at the bottom activates.
+
+### Step 3: Launch and Play
+
+1. Tap **LAUNCH COMMANDER** — a small floating overlay appears on screen
+2. Tap **Listen** on the overlay to start voice recognition
+3. Switch to Clash Royale and start a match
+4. Say commands like **"knight left"** or **"fireball center"** — the AI places cards for you in ~170ms
+
+### What Works Without API Keys
+
+| Feature | Works Offline? | Example |
+|---------|---------------|---------|
+| **Fast Path** (direct card commands) | Yes | "knight left", "archers right", "fireball center" |
+| **Queue Path** (chained commands) | Yes | "knight left then archers right" |
+| **Smart Path** (AI tactical decisions) | No — needs Gemini API key | "defend", "push right" |
+| **Autopilot** (full AI play) | No — needs Gemini API key | "autopilot", "play for me" |
+| **Strategy Analysis** | No — needs Anthropic API key | Pre-match deck analysis |
+
+> **Fast Path and Queue Path cover most gameplay.** You tell the app which card to play and where — it handles the tapping. No API keys required.
+
+---
+
+## Building from Source
+
+If you want Smart Path, Autopilot, or strategy analysis, you need to build from source with API keys.
 
 ### Prerequisites
 
+- Android Studio or Gradle
 - Android phone (tested on Samsung Galaxy A35, Android 16)
 - Clash Royale installed
-- API keys: [Anthropic](https://console.anthropic.com/) (Claude) + [Google AI](https://aistudio.google.com/) (Gemini)
 
 ### 1. Download STT Model Assets
 
-The speech recognition model (~180MB) is too large for git. Run the bootstrap script to download it:
+The speech recognition model (~180MB) is too large for git. Run the bootstrap script:
 
 **macOS / Linux:**
 ```bash
@@ -71,12 +119,7 @@ The speech recognition model (~180MB) is too large for git. Run the bootstrap sc
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap_sherpa_deps.ps1
 ```
 
-This downloads into gitignored paths:
-- `app/src/main/assets/sherpa-onnx-zipformer-en-2023-04-01/` (STT model)
-- `app/src/main/assets/silero_vad.onnx` (voice activity detection)
-- `app/src/main/jniLibs/arm64-v8a/` (native libraries)
-
-### 2. Configure API Keys
+### 2. Configure API Keys (Optional)
 
 Copy the example and add your keys:
 ```bash
@@ -85,35 +128,20 @@ cp local.properties.example local.properties
 
 Edit `local.properties`:
 ```properties
-ANTHROPIC_API_KEY=sk-ant-...
-GEMINI_API_KEY=AIza...
+ANTHROPIC_API_KEY=sk-ant-...    # For deck strategy analysis (Claude Opus)
+GEMINI_API_KEY=AIza...          # For Smart Path + Autopilot (Gemini Flash)
 ```
 
-### 3. Build
+> Without keys, the app still works — Fast Path and Queue Path are fully on-device. Smart Path and Autopilot will show a friendly message asking for keys.
+
+### 3. Build and Install
 
 ```bash
 ./gradlew assembleDebug
-```
-
-### 4. Install
-
-```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### 5. Device Setup
-
-1. **Allow restricted settings** (Android 13+): Settings > Apps > Clash Commander > menu (3 dots) > Allow restricted settings
-2. Open Clash Commander and complete the setup checklist:
-   - Grant overlay permission
-   - Enable Accessibility Service (Settings > Accessibility > Clash Commander)
-   - Grant microphone permission
-   - Start screen capture
-   - Start speech service (wait ~7s for model to load)
-3. **Load your deck**: Tap "Share Deck from Clash Royale" — opens CR, go to your deck, tap Share, select Clash Commander
-4. Wait for Opus strategic analysis (~20s)
-5. Launch the overlay, tap "Listen", switch to Clash Royale
-6. Start commanding!
+Then follow the same setup checklist from Step 2 above.
 
 ## Architecture
 
