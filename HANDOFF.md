@@ -125,9 +125,9 @@
 ## API Keys
 - Anthropic: `BuildConfig.ANTHROPIC_API_KEY` (set in local.properties)
 - Gemini: `BuildConfig.GEMINI_API_KEY` (set in local.properties)
-- Roboflow: `BuildConfig.ROBOFLOW_API_KEY` (empty — not used at runtime)
-- Supercell API token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzUxMiIsImtpZCI6IjI4YTMxOGY3LTAwMDAtYTFlYi03ZmExLTJjNzQzM2M2Y2NhNSJ9.eyJpc3MiOiJzdXBlcmNlbGwiLCJhdWQiOiJzdXBlcmNlbGw6Z2FtZWFwaSIsImp0aSI6IjU4NjlhNTc3LWFiNjUtNGM3Mi04NmJmLTZmMjRhMDdiMjAzNSIsImlhdCI6MTc3MDUyNjg3MSwic3ViIjoiZGV2ZWxvcGVyLzEyMThhMTkzLThjNjktZWM5Yi02ZDQzLTM1MTkzMzZlOTUzMyIsInNjb3BlcyI6WyJyb3lhbGUiXSwibGltaXRzIjpbeyJ0aWVyIjoiZGV2ZWxvcGVyL3NpbHZlciIsInR5cGUiOiJ0aHJvdHRsaW5nIn0seyJjaWRycyI6WyIxNTkuMjYuMTA2LjE2Il0sInR5cGUiOiJjbGllbnQifV19.MhJV9eZ2rOFG-BDsGzja5upaWCC3Ewy4D0-eNc9OdfwSa53jg4hVp85ZOUrR5c-x1yiDEi6oBvQlXTlZQn-y4w (IP-whitelisted to 159.26.106.16)
-- Roboflow account API key: wdpkXFEbMtF7Tg3umxlu
+- Roboflow: `BuildConfig.ROBOFLOW_API_KEY` (set in local.properties; optional)
+- Supercell API token: DO NOT COMMIT. Keep tokens in local-only configs and rotate if ever exposed.
+- Roboflow account API key: DO NOT COMMIT. Keep keys in local-only configs and rotate if ever exposed.
 
 ## Git State
 - Local git repo on branch `main` with remote `origin` → `github.com/youssofal/Clash-Companion`
