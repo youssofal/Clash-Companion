@@ -166,18 +166,50 @@ Microphone -> Silero VAD -> Zipformer STT -> Command Parser -> Router
 
 **During match:** YOLOv8n-cls scans your hand at 5 FPS to identify which cards are available. The command router picks the fastest execution path for each voice command.
 
-## Voice Command Examples
+## Voice Commands
+
+Say **"[card] [zone]"** to play a card. For example: **"knight left"**, **"fireball top right"**.
+
+### Zones
+
+| Zone | Where It Places | Aliases |
+|------|----------------|---------|
+| **left** | Left bridge | "left bridge", "bridge left" |
+| **right** | Right bridge | "right bridge", "bridge right" |
+| **center** | Center of arena | "middle", "mid" |
+| **top left** | Enemy left tower | "left tower", "enemy left", "his left" |
+| **top right** | Enemy right tower | "right tower", "enemy right", "his right" |
+| **bottom left** | Behind your left tower | "back left", "behind left", "defend left" |
+| **bottom right** | Behind your right tower | "back right", "behind right", "defend right" |
+| **back** | Behind your king tower | "behind", "back center", "behind king" |
+| **front left** | Offensive left (past bridge) | — |
+| **front right** | Offensive right (past bridge) | — |
+| **my left** | Your left princess tower | "my left tower" |
+| **my right** | Your right princess tower | "my right tower" |
+| **his king** | Enemy king tower | "their king", "opponent king" |
+
+### Command Examples
 
 ```
-"knight left"              -> Fast Path: plays Knight at left bridge
-"fireball center"          -> Fast Path: plays Fireball at center
-"arrows left tower"        -> Fast Path: targets enemy left tower
-"knight left then archers" -> Queue: plays Knight, queues Archers
-"defend"                   -> Smart: AI picks best defensive card
-"push right"               -> Smart: AI picks offensive card for right
-"follow up"                -> Smart: supports last played card, same lane
-"autopilot"                -> Toggle: AI plays entire match
-"stop"                     -> Stops autopilot
+"knight left"                  → plays Knight at left bridge
+"fireball top right"           → plays Fireball at enemy right tower
+"arrows center"                → plays Arrows at center
+"giant bottom left"            → places Giant behind your left tower
+"musketeer back"               → places Musketeer behind king tower
+"mini pekka front right"       → places Mini P.E.K.K.A past right bridge
+"archers my left"              → places Archers at your left tower
+"knight left then archers right" → plays Knight, then queues Archers
+"fireball his king"            → plays Fireball at enemy king tower
+```
+
+### Special Commands (require API keys)
+
+```
+"defend"                       → AI picks best defensive card
+"push right"                   → AI picks offensive card for right lane
+"follow up"                    → AI supports last played card, same lane
+"autopilot" / "play for me"   → AI plays the entire match
+"stop"                         → Stops autopilot
 ```
 
 ## Tech Stack
