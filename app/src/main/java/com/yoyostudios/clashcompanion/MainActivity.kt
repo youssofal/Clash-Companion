@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
     val speechReady = mutableStateOf(false)
     val speechLoading = mutableStateOf(false)
     val deckCards = mutableStateOf<List<DeckManager.CardInfo>>(emptyList())
+    val deckModelWarning = mutableStateOf<String?>(null)
     val opusStatus = mutableStateOf("")
     val opusComplete = mutableStateOf(false)
 
@@ -100,6 +101,7 @@ class MainActivity : ComponentActivity() {
         // Load saved deck
         if (DeckManager.loadSavedDeck(this)) {
             deckCards.value = DeckManager.currentDeck
+            updateDeckModelWarning(DeckManager.currentDeck)
             OpusCoach.loadSavedPlaybook(this)
             if (OpusCoach.cachedPlaybook != null) {
                 opusStatus.value = "Playbook loaded"
@@ -241,14 +243,29 @@ class MainActivity : ComponentActivity() {
             else -> null
         }
         if (cards != null && cards.isNotEmpty()) {
-            // New deck loaded — stop any existing scanning
-            HandDetector.stopScanning()
-
             DeckManager.setDeck(cards, this)
             deckCards.value = cards
+            updateDeckModelWarning(cards)
+            // If the STT engine is already running, reload hotwords so recognition
+            // matches the newly loaded deck without requiring a full service restart.
+            SpeechService.instance?.reloadHotwords()
             triggerOpusAnalysis(cards)
             Log.i(TAG, "DECK: Loaded ${cards.size} cards. ResNet classifier ready.")
         }
+    }
+
+    private fun updateDeckModelWarning(cards: List<DeckManager.CardInfo>) {
+        val unsupported = CardClassifier.unsupportedDeckCards(cards)
+        if (unsupported.isEmpty()) {
+            deckModelWarning.value = null
+            return
+        }
+
+        val names = unsupported.joinToString(", ") { it.name }
+        deckModelWarning.value =
+            "On-device hand detection doesn't support: $names. " +
+                "Those cards may be misrecognized until the classifier is retrained."
+        Log.w(TAG, "DECK: Unsupported by on-device classifier (${unsupported.size}): $names")
     }
 
     private fun triggerOpusAnalysis(deck: List<DeckManager.CardInfo>) {
